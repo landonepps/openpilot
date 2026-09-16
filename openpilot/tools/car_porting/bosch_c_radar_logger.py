@@ -20,6 +20,7 @@ from opendbc.car import structs
 from opendbc.car.can_definitions import CanData
 from opendbc.car.honda import bosch_c_radar
 from opendbc.car.honda.bosch_c_radar import BoschCRadarInterface, CandidateCalibration, OBJECT_IDS, STALE_NS
+from openpilot.tools.car_porting.bosch_c_radar_time import log_time_ns
 
 
 def diagnostic_record(adapter, packets, *, now_nanos=None):
@@ -44,6 +45,18 @@ def write_record(output, record, written_bytes, max_bytes):
   return written_bytes + len(data)
 
 
+def radar_preview(adapter):
+  """Bounded object summary for diagnostics, including display-guard rejects."""
+  now = adapter.decoder.now_ns
+  accepted = {p.trackId for p in adapter.snapshot(now).points} if now is not None else set()
+  return {'timestamp_ns': now, 'last_bank_ns': adapter.decoder.last_bank_ns,
+          'tracks': [{'track_id': t.track_id, 'wire_id': t.raw.wire_id,
+                      'x': x, 'y': y, 'v': v, 'candidate': t.track_id in accepted,
+                      'age_s': (now - t.first_seen_ns) * 1e-9}
+                     for t in adapter.decoder.tracks.values()
+                     for x, y, v in [adapter.calibration.convert(t.raw)]]}
+
+
 def run_capture(adapter, receive, output, *, duration_s, max_bytes, clock=time.monotonic, should_stop=lambda: False, progress=None):
   """Injectable receive loop. Receive must return promptly, including on silence."""
   started = clock()
@@ -59,7 +72,8 @@ def run_capture(adapter, receive, output, *, duration_s, max_bytes, clock=time.m
     raise ValueError('Output limit is too small for the session header')
   def report(state, reason=None):
     result = {'state': state, 'reason': reason, 'updates': count, 'bytes': written,
-              'elapsed_s': max(0., clock() - started), 'banks': adapter.decoder.counters['accepted_banks']}
+              'elapsed_s': max(0., clock() - started), 'banks': adapter.decoder.counters['accepted_banks'],
+              'reported_monotonic_s': clock(), 'radar': radar_preview(adapter)}
     if progress is not None:
       progress(result)
     return result
@@ -139,7 +153,7 @@ def main():
         cp = reader.as_builder()
       if cp.openpilotLongitudinalControl:
         raise RuntimeError('Passive capture requires Honda longitudinal control')
-      adapter = BoschCRadarInterface(cp, structs.CarParamsSP(), calibration=calibration, bus=args.bus)
+      adapter = BoschCRadarInterface(cp, structs.CarParamsSP(), calibration=calibration, bus=args.bus, clock=log_time_ns)
       sock = messaging.sub_sock('can', timeout=100)
 
       def receive():

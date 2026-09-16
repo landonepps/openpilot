@@ -166,3 +166,59 @@ def test_bundled_calibration_is_explicitly_provisional():
   calibration = json.loads(CALIBRATION_PATH.read_text())
   assert 'candidate' in calibration['status']
   assert calibration['parameters']['x_reference_offset'] == pytest.approx(-4.296)
+
+
+def test_preview_expires_when_worker_status_freezes_and_clears_on_stop(capture):
+  obj, now, _, _ = capture
+  obj.start(True)
+  radar = {'timestamp_ns': 0, 'tracks': []}
+  status(obj, 'recording', reported_monotonic_s=0, radar=radar)
+  obj.poll(True)
+  assert obj.preview == radar
+  now[0] = 2
+  obj.poll(True)
+  assert obj.preview is None
+  status(obj, 'recording', reported_monotonic_s=2, radar=radar)
+  now[0] = 2.5
+  obj.poll(True)
+  assert obj.preview == radar
+  obj.stop()
+  assert obj.preview is None
+
+
+def test_bookmark_saves_timestamp_and_snapshot_off_ui_thread(capture, monkeypatch):
+  monkeypatch.setattr('openpilot.tools.car_porting.bosch_c_radar_capture.log_time_ns', lambda: 987_654_321)
+  obj, _, _, _ = capture
+  obj.mark()
+  assert obj.marker_future is None
+  obj.start(True)
+  radar = {'timestamp_ns': 100, 'tracks': [{'track_id': 42}]}
+  status(obj, 'recording', reported_monotonic_s=0, radar=radar)
+  obj.poll(True)
+  obj.mark()
+  future = obj.marker_future
+  obj.mark()  # One pending write maximum, even if the write has already finished.
+  assert obj.marker_future is future
+  future.result(timeout=2)
+  obj.poll(True)
+  assert obj.marker_notice == 'Mark saved'
+  records = [json.loads(line) for line in obj.output_path.with_suffix('.markers.jsonl').read_text().splitlines()]
+  assert len(records) == 1
+  assert records[0]['radar'] == radar and records[0]['preview_fresh']
+  assert records[0]['timestamp_ns'] == 987_654_321 and records[0]['capture_file'] == obj.output_path.name
+  obj.marker_executor.shutdown()
+
+
+def test_marker_write_failure_does_not_interrupt_capture(capture, monkeypatch):
+  obj, _, _, _ = capture
+  obj.start(True)
+
+  def fail(*args):
+    raise OSError('disk full')
+
+  monkeypatch.setattr('openpilot.tools.car_porting.bosch_c_radar_capture.append_marker', fail)
+  obj.mark()
+  assert isinstance(obj.marker_future.exception(timeout=2), OSError)
+  obj.poll(True)
+  assert obj.marker_notice == 'Mark failed' and obj.active
+  obj.marker_executor.shutdown()

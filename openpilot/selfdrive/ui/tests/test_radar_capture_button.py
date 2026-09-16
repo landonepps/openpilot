@@ -60,7 +60,8 @@ def test_actual_parent_release_method_does_not_navigate_after_capture_tap():
   path = Path(__file__).parents[1] / 'mici/onroad/augmented_road_view.py'
   tree = ast.parse(path.read_text())
   source = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'AugmentedRoadView')
-  methods = [n for n in source.body if isinstance(n, ast.FunctionDef) and n.name in ('_handle_mouse_release', 'is_swiping_left')]
+  methods = [n for n in source.body if isinstance(n, ast.FunctionDef) and
+             n.name in ('_handle_mouse_release', 'is_swiping_left', '_bookmark_with_radar')]
 
   class Parent:
     def _handle_mouse_release(self, pos):
@@ -83,3 +84,8 @@ def test_actual_parent_release_method_does_not_navigate_after_capture_tap():
   parent._radar_button.handle_events([], True)
   parent._handle_mouse_release(rl.Vector2(30, 30))
   assert parent.navigated
+  bookmarks = []
+  parent._radar_capture = SimpleNamespace(mark=lambda: bookmarks.append('radar'))
+  parent._bookmark_callback = lambda: bookmarks.append('route')
+  parent._bookmark_with_radar()
+  assert bookmarks == ['radar', 'route']

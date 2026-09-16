@@ -18,6 +18,22 @@ The UI launches decoding and file writing in a separate low-priority process. Ca
 
 Touch tests verify that tapping does not open the home screen or trigger the bookmark gesture. Drags cancel the tap. The control is 124×42 in the 536×240 comma four view. Full live/on-device UI testing is still pending; see the research report for local rendering limitations.
 
+## Live radar preview and bookmarks
+
+During a capture, comma four shows a translucent 160×126 bird's-eye panel at the lower right of the camera view. It hides for alerts, blind-spot warnings and while scrolling away. This is a separate diagnostic view of the candidate object list, independent of Honda's HUD lead selection. No camera match is required. It does not identify object classes such as car, wall or pedestrian.
+
+- The car is at the bottom of the map. The top is 100 m ahead, the middle line is 50 m, and the horizontal span is 10 m either side, all under provisional calibration. Positive candidate lateral position is drawn left.
+- `Radar ~ 3/5` means three objects fit within the map and five structurally accepted tracks exist in total. Objects outside the plot are counted, not clamped to its edges. The stream has at most sixteen object slots; this is not a map of all radar reflections.
+- Cyan dots pass the existing empirical display guard. Hollow amber dots fail that guard but remain visible if they fit within the map. Neither color is a recovered confidence score or object classification.
+- A white ring highlights the nearest guard-passing object within the map and within 2 m of the centerline. Its track ID, estimated forward distance, relative speed and continuous track age appear beside the map. This geometric selection is not an ACC lead decision. Negative relative speed means closing under the candidate velocity convention. Track age is not a confidence score.
+- `~` marks unvalidated physical calibration. The shown forward distance uses the frozen research offset; it is not yet a verified bumper-to-object or laser distance.
+
+Status is published at most twice per second. `No fresh preview` replaces dots when the worker has no fresh valid bank, stops recording, or its status is more than 1.5 seconds old. An empty map does not establish that the space is clear.
+
+Use the existing leftward bookmark swipe to mark an interesting moment while capture is active. It still creates the normal route bookmark and also saves a record in the capture's `.markers.jsonl` file. `Mark saved` confirms the separate marker write; `Mark failed` means it failed. Marker writes run off the UI thread, with at most one pending. Each record includes UTC, a timestamp using the rlog clock domain, the capture filename, and the last displayed object summary with its source timestamps and freshness flag. The snapshot can predate the gesture by the status-update delay; use the gesture timestamp to locate the exact raw frames. Retrieve the marker file together with the capture and rlog. Captures remain manually started and retain their ten-minute/256 MiB limits.
+
+A wall is a possible measurement target only if an exported track can be associated with a known reflecting surface. A wall may yield no stable object, multiple tracks, or a return from an edge/post instead of the flat face. While parked, check repeatability at multiple known distances and record the laser's reference position relative to the car. Keep the raw capture even when the displayed estimate seems wrong. Independent distance/offset validation is still required.
+
 ## Running a passive capture
 
 Run from this checkout in an environment with the normal sunnypilot IPC runtime, during a stock Honda longitudinal-control session. Supply the research project's `artifacts/calibration.json` or the bundled `openpilot/tools/car_porting/bosch_c_candidate_calibration.json` explicitly. The tool rejects sessions with `openpilotLongitudinalControl` enabled.
@@ -54,3 +70,5 @@ Before production activation, validate physical calibration and object validity,
 The diagnostics branch uses MVL's `sp-honda-dev-202608` baselines: sunnypilot `46db408ea71908ab2559b385a7aad9fc85220422` and opendbc `254d6f150b21b82da9666b1000f7b99507f15c9a`. The submodule is pinned to the candidate decoder in `landonepps/opendbc`, branch `bosch-c-radar-diagnostics`.
 
 After integrating those baselines, 88 Honda adapter, capture and research tests and five comma four touch tests passed. Ruff also passed for the changed Python files. On-device UI and live CAN capture validation remain pending.
+
+The live-preview and bookmark extension passes 100 combined tests, including stale-status clearing, stationary objects, display-guard rejects, asynchronous marker success/failure, and preservation of the normal route bookmark. A synthetic software rendering of the production drawing calls checked layout with the production font. This does not replace a device/GPU UI test.

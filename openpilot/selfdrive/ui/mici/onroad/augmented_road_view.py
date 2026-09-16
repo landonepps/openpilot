@@ -9,6 +9,7 @@ from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus, device
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
 from openpilot.selfdrive.ui.mici.onroad.radar_capture_button import RadarCaptureButton
+from openpilot.selfdrive.ui.mici.onroad.radar_debug_overlay import render_radar_overlay
 from openpilot.tools.car_porting.bosch_c_radar_capture import RadarCaptureController, capture_allowed
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.hardware.hw import Paths
@@ -157,7 +158,7 @@ class AugmentedRoadView(CameraView):
     self._last_click_time = 0.0
 
     # Bookmark icon with swipe gesture
-    self._bookmark_icon = BookmarkIcon(bookmark_callback)
+    self._bookmark_icon = BookmarkIcon(self._bookmark_with_radar)
     self._radar_capture = RadarCaptureController(Path(Paths.log_root()).parent / 'bosch_c_radar')
     self._radar_button = RadarCaptureButton(self._radar_capture, lambda: self._radar_capture.toggle(self._radar_capture_allowed()))
     self._radar_button_font = gui_app.font(FontWeight.MEDIUM)
@@ -184,6 +185,11 @@ class AugmentedRoadView(CameraView):
 
   def _radar_capture_allowed(self):
     return capture_allowed(HARDWARE.get_device_type(), ui_state.started, ui_state.CP)
+
+  def _bookmark_with_radar(self):
+    self._radar_capture.mark()
+    if self._bookmark_callback is not None:
+      self._bookmark_callback()
 
   def _update_radar_capture(self):
     self._radar_capture.poll(self._radar_capture_allowed())
@@ -274,6 +280,11 @@ class AugmentedRoadView(CameraView):
       font=self._radar_button_font, measure=measure_text_cached, events=gui_app.mouse_events,
       touch_valid=self._touch_valid() and self.enabled and device.awake,
     )
+    # Leave the right-side blind-spot warning unobscured, including its fade-out.
+    blindspot_visible = gui_app.sunnypilot_ui() and self._hud_renderer._has_blind_spot_detected()
+    render_radar_overlay(self._content_rect, self._radar_capture,
+                         visible=self._radar_capture_allowed() and alert_to_render is None and abs(self.rect.x) < 1 and not blindspot_visible,
+                         font=self._radar_button_font, measure=measure_text_cached)
     self._bookmark_icon.render(self.rect)
 
   def _switch_stream_if_needed(self, sm):

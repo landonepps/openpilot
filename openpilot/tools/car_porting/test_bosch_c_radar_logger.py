@@ -1,10 +1,11 @@
 import io
 import json
+import pytest
 
 from opendbc.car import structs
 from opendbc.car.honda.bosch_c_radar import BoschCRadarInterface
 from opendbc.car.honda.tests.test_bosch_c_radar import CALIBRATION, bank, cp
-from openpilot.tools.car_porting.bosch_c_radar_logger import diagnostic_record, run_capture, write_record
+from openpilot.tools.car_porting.bosch_c_radar_logger import diagnostic_record, radar_preview, run_capture, write_record
 
 
 def test_record_keeps_raw_payloads_and_leaves_carparams_unchanged():
@@ -84,3 +85,26 @@ def test_progress_returns_to_waiting_when_radar_stream_expires():
                        should_stop=lambda: calls[0] >= 2, progress=progress.append)
   assert [r['state'] for r in progress] == ['waiting', 'recording', 'waiting', 'finished']
   assert result['banks'] == 1
+
+
+def test_preview_includes_stationary_and_guard_rejected_objects():
+  adapter = BoschCRadarInterface(cp(), structs.CarParamsSP(), calibration=CALIBRATION)
+  diagnostic_record(adapter, [(0, bank(velocity=1539))])
+  preview = radar_preview(adapter)
+  assert preview['tracks'][0]['v'] == 0
+  assert preview['tracks'][0]['candidate']
+  assert preview['tracks'][0]['x'] == CALIBRATION.convert(adapter.decoder.tracks[1].raw)[0]
+  # Negative candidate distance is still diagnostic data, not silently dropped.
+  diagnostic_record(adapter, [(60_000_000, bank(1, x=4096))])
+  preview = radar_preview(adapter)
+  assert len(preview['tracks']) == 1 and not preview['tracks'][0]['candidate']
+  assert preview['tracks'][0]['age_s'] == pytest.approx(.06)
+  assert preview['last_bank_ns'] == 60_000_000
+
+
+def test_preview_is_empty_before_first_bank_and_after_expiry():
+  adapter = BoschCRadarInterface(cp(), structs.CarParamsSP(), calibration=CALIBRATION, clock=lambda: 300_000_000)
+  assert radar_preview(adapter)['tracks'] == []
+  diagnostic_record(adapter, [(0, bank())])
+  diagnostic_record(adapter, [])
+  assert radar_preview(adapter)['tracks'] == []

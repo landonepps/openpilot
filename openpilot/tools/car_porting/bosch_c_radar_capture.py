@@ -1,5 +1,6 @@
 """Nonblocking UI controller and low-priority entry point for passive capture."""
 from datetime import datetime, UTC
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -10,10 +11,18 @@ import sys
 import time
 import uuid
 
+from openpilot.tools.car_porting.bosch_c_radar_time import LOG_CLOCK_NAME, log_time_ns
+
 CALIBRATION_PATH = Path(__file__).with_name('bosch_c_candidate_calibration.json')
 DURATION_S = 600
 MAX_MIB = 256
 MIN_FREE_BYTES = 512 * 1024 * 1024
+PREVIEW_TIMEOUT_S = 1.5
+
+
+def append_marker(path, record):
+  with path.open('ab') as output:
+    output.write((json.dumps(record, allow_nan=False, separators=(',', ':')) + '\n').encode())
 
 
 def capture_allowed(device_type, started, cp):
@@ -37,6 +46,36 @@ class RadarCaptureController:
     self.stop_at = None
     self.finished_at = 0.
     self.last_poll = -1.
+    self.marker_executor = None
+    self.marker_future = None
+    self.marker_notice = ''
+    self.marker_notice_until = 0.
+
+  @property
+  def preview(self):
+    age = self.clock() - self.progress.get('reported_monotonic_s', float('-inf'))
+    if not self.active or self.state != 'recording' or not 0 <= age <= PREVIEW_TIMEOUT_S:
+      return None
+    return self.progress.get('radar')
+
+  def mark(self):
+    if not self.active or self.stop_at is not None or self.marker_future is not None:
+      return
+    record = {'kind': 'bookmark', 'timestamp_ns': log_time_ns(), 'timestamp_clock': LOG_CLOCK_NAME, 'utc': datetime.now(UTC).isoformat(),
+              'capture_file': self.output_path.name, 'elapsed_s': self.clock() - self.started_at,
+              'preview_fresh': self.preview is not None, 'radar': self.progress.get('radar')}
+    # Sparse bookmark writes stay off the UI thread. At most one is pending.
+    if self.marker_executor is None:
+      self.marker_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='radar-marker')
+    self.marker_future = self.marker_executor.submit(append_marker, self.output_path.with_suffix('.markers.jsonl'), record)
+
+  def _poll_marker(self):
+    if self.marker_future is not None and self.marker_future.done():
+      self.marker_notice = 'Mark failed' if self.marker_future.exception() else 'Mark saved'
+      self.marker_future = None
+      self.marker_notice_until = self.clock() + 3
+    if self.clock() > self.marker_notice_until:
+      self.marker_notice = ''
 
   @property
   def active(self):
@@ -88,6 +127,7 @@ class RadarCaptureController:
 
   def poll(self, allowed):
     now = self.clock()
+    self._poll_marker()
     if not self.active:
       if self.state in ('saved', 'stopped') and now - self.finished_at > 5:
         self.state = 'idle'
