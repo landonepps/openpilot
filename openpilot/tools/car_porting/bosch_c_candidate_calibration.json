@@ -1,0 +1,14 @@
+{
+  "parameters": {
+    "x_scale": 0.05,
+    "x_zero": 4096,
+    "x_reference_offset": -4.296000000000001,
+    "y_scale": 0.0078125,
+    "velocity_scale": 0.1,
+    "velocity_zero": 1539
+  },
+  "status": "candidate physical scales; no recovered firmware constants",
+  "development_data": "0000016d segment 10; fixed matched wire ID19/HUD ID2; offset is a median alignment to nominal HUD positions. Velocity zero observed on stationary persistent tracks in segment 0.",
+  "physical_scale_evidence": "5 cm/count distance, 1/128 m/count lateral and 0.1 m/s/count velocity are hypotheses consistent with recordings, not independently calibrated.",
+  "do_not_refit_on_validation": true
+}

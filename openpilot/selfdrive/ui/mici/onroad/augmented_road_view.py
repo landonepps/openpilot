@@ -1,10 +1,18 @@
+import atexit
+from pathlib import Path
+
 import numpy as np
 import pyray as rl
 from openpilot.cereal import log
 from opendbc.car.structs import car
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus, device
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
+from openpilot.selfdrive.ui.mici.onroad.radar_capture_button import RadarCaptureButton
+from openpilot.tools.car_porting.bosch_c_radar_capture import RadarCaptureController, capture_allowed
+from openpilot.common.hardware import HARDWARE
+from openpilot.common.hardware.hw import Paths
+from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.mici.onroad.alert_renderer import AlertRenderer
 from openpilot.selfdrive.ui.mici.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
@@ -150,6 +158,13 @@ class AugmentedRoadView(CameraView):
 
     # Bookmark icon with swipe gesture
     self._bookmark_icon = BookmarkIcon(bookmark_callback)
+    self._radar_capture = RadarCaptureController(Path(Paths.log_root()).parent / 'bosch_c_radar')
+    self._radar_button = RadarCaptureButton(self._radar_capture, lambda: self._radar_capture.toggle(self._radar_capture_allowed()))
+    self._radar_button_font = gui_app.font(FontWeight.MEDIUM)
+    self._bookmark_icon.set_touch_valid_callback(lambda: not self._radar_button.interacting)
+    gui_app.add_nav_stack_tick(self._update_radar_capture)
+    ui_state.add_offroad_transition_callback(self._update_radar_capture)
+    atexit.register(self._radar_capture.stop)
 
     self._model_renderer = ModelRenderer()
     self._hud_renderer = HudRenderer()
@@ -165,7 +180,13 @@ class AugmentedRoadView(CameraView):
 
   def is_swiping_left(self) -> bool:
     """Check if currently swiping left (for scroller to disable)."""
-    return self._bookmark_icon.is_swiping_left()
+    return self._bookmark_icon.is_swiping_left() or self._radar_button.blocks_scrolling(gui_app.mouse_events)
+
+  def _radar_capture_allowed(self):
+    return capture_allowed(HARDWARE.get_device_type(), ui_state.started, ui_state.CP)
+
+  def _update_radar_capture(self):
+    self._radar_capture.poll(self._radar_capture_allowed())
 
   def _update_state(self):
     super()._update_state()
@@ -180,12 +201,13 @@ class AugmentedRoadView(CameraView):
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     # Don't trigger click callback if bookmark was triggered
-    if not self._bookmark_icon.interacting():
+    if not self._radar_button.interacting and not self._bookmark_icon.interacting():
       super()._handle_mouse_release(mouse_pos)
 
   def _render(self, _):
     # Draw text if not onroad
     if not ui_state.started:
+      self._radar_button.hide()
       rl.draw_rectangle_rec(self.rect, rl.BLACK)
       self._offroad_label.render(self._rect)
       return
@@ -246,6 +268,12 @@ class AugmentedRoadView(CameraView):
     # Use self._content_rect for positioning within camera bounds
     self._confidence_ball.render(self.rect)
 
+    self._radar_button.render(
+      self._content_rect,
+      visible=self._radar_capture_allowed() and alert_to_render is None and abs(self.rect.x) < 1,
+      font=self._radar_button_font, measure=measure_text_cached, events=gui_app.mouse_events,
+      touch_valid=self._touch_valid() and self.enabled and device.awake,
+    )
     self._bookmark_icon.render(self.rect)
 
   def _switch_stream_if_needed(self, sm):
