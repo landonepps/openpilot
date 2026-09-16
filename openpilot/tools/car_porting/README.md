@@ -48,3 +48,9 @@ The adapter requires all sixteen slots for a bank, verifies the address-dependen
 Only `trackId`, `dRel`, `yRel` and `vRel` enter candidate `RadarData`. Quality and the additional motion fields remain diagnostic data. The existing empirical display guard is preserved; no new quality cutoff is enabled. The normal Honda interface, `radarUnavailable`, radar-disable sequence, RadarD and downstream consumers remain unchanged.
 
 Before production activation, validate physical calibration and object validity, run passive vehicle captures, and resolve retention of the object stream during sunnypilot longitudinal control.
+
+## Fork baseline and validation
+
+The diagnostics branch uses MVL's `sp-honda-dev-202608` baselines: sunnypilot `46db408ea71908ab2559b385a7aad9fc85220422` and opendbc `254d6f150b21b82da9666b1000f7b99507f15c9a`. The submodule is pinned to the candidate decoder in `landonepps/opendbc`, branch `bosch-c-radar-diagnostics`.
+
+After integrating those baselines, 88 Honda adapter, capture and research tests and five comma four touch tests passed. Ruff also passed for the changed Python files. On-device UI and live CAN capture validation remain pending.
