@@ -3,6 +3,7 @@ import pyray as rl
 
 WIDTH, HEIGHT = 160, 126
 RANGE_M, HALF_WIDTH_M = 100., 10.
+BADGE_WIDTH, BADGE_HEIGHT = 216, 78
 
 
 def preview_objects(preview):
@@ -10,6 +11,32 @@ def preview_objects(preview):
   visible = [t for t in tracks if 0 < t['x'] <= RANGE_M and abs(t['y']) <= HALF_WIDTH_M]
   central = [t for t in visible if t['candidate'] and abs(t['y']) <= 2.]
   return visible, min(central, key=lambda t: t['x'], default=None), len(tracks)
+
+
+def render_center_badge(content_rect, preview, selected, *, font, measure):
+  # Fixed HUD position, not a camera projection or a claim of ACC lead lock.
+  # Keep clear of the upper-left speed display and the radar map below.
+  rect = rl.Rectangle(content_rect.x + content_rect.width - BADGE_WIDTH - 10,
+                      content_rect.y + 12, BADGE_WIDTH, BADGE_HEIGHT)
+  if preview is None:
+    accent = rl.Color(255, 195, 80, 240)
+    background = rl.Color(38, 32, 22, 220)
+    label, detail = 'WAITING', 'No fresh radar data'
+  elif selected is None:
+    accent = rl.Color(185, 195, 205, 220)
+    background = rl.Color(20, 25, 30, 200)
+    label, detail = 'NONE', 'No center track'
+  else:
+    accent = rl.Color(95, 240, 240, 255)
+    background = rl.Color(8, 65, 70, 235)
+    label, detail = f"YES  ~{selected['x']:.1f} m", f"Track #{selected['track_id']} | estimate"
+  rl.draw_rectangle_rounded(rect, .18, 8, background)
+  rl.draw_rectangle_rounded_lines_ex(rect, .18, 8, 2., accent)
+  for text, offset, size in (('CENTER CANDIDATE', 6, 14), (label, 27, 24), (detail, 59, 11)):
+    width = measure(font, text, size).x
+    fitted = size * min(1., (BADGE_WIDTH - 20) / max(1., width))
+    x = rect.x + (BADGE_WIDTH - measure(font, text, fitted).x) / 2
+    rl.draw_text_ex(font, text, rl.Vector2(x, rect.y + offset), fitted, 0, accent)
 
 
 def render_radar_overlay(content_rect, controller, *, visible, font, measure):
@@ -56,3 +83,4 @@ def render_radar_overlay(content_rect, controller, *, visible, font, measure):
       text('No central', 78, 42, WIDTH - 86)
       text('candidate', 78, 59, WIDTH - 86)
   text(controller.marker_notice or '100m / +/-10m', 8, 106, WIDTH - 16)
+  render_center_badge(content_rect, preview, selected, font=font, measure=measure)
