@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Bosch C diagnostics alongside stock Honda longitudinal control.
+"""Read-only Bosch C diagnostics under either existing longitudinal configuration.
 
 Writes local JSONL only. Does not publish radarData, send CAN, alter parameters,
 or register an interface. Requires explicit provisional calibration. Existing
@@ -151,8 +151,6 @@ def main():
         raise RuntimeError('No CarParams available')
       with structs.CarParams.from_bytes(data) as reader:
         cp = reader.as_builder()
-      if cp.openpilotLongitudinalControl:
-        raise RuntimeError('Passive capture requires Honda longitudinal control')
       adapter = BoschCRadarInterface(cp, structs.CarParamsSP(), calibration=calibration, bus=args.bus, clock=log_time_ns)
       sock = messaging.sub_sock('can', timeout=100)
 

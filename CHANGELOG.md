@@ -1,3 +1,11 @@
+Experimental Honda Bosch C radar (2026-09-26)
+========================
+* Opt-in CR-V 6G CAN-FD radar through the existing Honda radar interface and RadarD.
+* Offroad-only comma four Developer setting. Existing alpha longitudinal is required; fresh installs default to radar disabled.
+* Boot-clock freshness and suspend recovery; existing silencing, safety and fusion remain unchanged.
+* Full-trip evidence uses normal route rlogs. Bounded passive capture and startup coexistence tools are included.
+* Limited parked and engaged road validation; see openpilot/tools/car_porting/README.md for update, logging and rollback instructions.
+
 sunnypilot Version 2026.002.000 (2026-06-28)
 ========================
 * What's Changed (sunnypilot/sunnypilot)

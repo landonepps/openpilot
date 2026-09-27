@@ -18,11 +18,11 @@ def test_other_devices_never_enable_capture(device):
   assert not capture_allowed(device, True, cp())
 
 
-def test_capture_gate_requires_comma_four_crv_and_stock_longitudinal():
+def test_capture_gate_requires_comma_four_crv_under_either_existing_mode():
   assert capture_allowed('mici', True, cp())
   assert not capture_allowed('mici', False, cp())
   assert not capture_allowed('mici', True, None)
-  assert not capture_allowed('mici', True, cp(True))
+  assert capture_allowed('mici', True, cp(True))
   assert not capture_allowed('mici', True, cp(fingerprint='HONDA_CIVIC'))
 
 
@@ -222,3 +222,20 @@ def test_marker_write_failure_does_not_interrupt_capture(capture, monkeypatch):
   obj.poll(True)
   assert obj.marker_notice == 'Mark failed' and obj.active
   obj.marker_executor.shutdown()
+
+
+def test_automatic_coexistence_status_reports_empty_bank_presence_and_expires(capture):
+  obj, now, processes, _ = capture
+  path = obj.output_dir / 'coexistence.status.json'
+  path.write_text(json.dumps({'recording': True, 'reported_monotonic_s': 0, 'object_stream': True}))
+  obj.poll(True)
+  assert obj.label == 'REC banks'
+  obj.toggle(True)
+  assert not processes  # autonomous capture has its own bounded lifetime
+  now[0] = 2
+  obj.poll(True)
+  assert obj.label == 'Radar log'
+  path.write_text(json.dumps({'recording': True, 'reported_monotonic_s': 2, 'object_stream': False}))
+  now[0] = 2.6
+  obj.poll(True)
+  assert obj.label == 'REC wait'

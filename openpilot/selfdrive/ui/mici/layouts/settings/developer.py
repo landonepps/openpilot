@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from opendbc.car.honda.bosch_c_radar_live import supported as bosch_c_supported
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigMultiToggle, BigParamControl, BigCircleParamControl, GreyBigButton
@@ -84,6 +85,10 @@ class DeveloperLayoutMici(NavScroller):
     self._alpha_long_toggle = BigToggle("alpha longitudinal",
                                         initial_state=ui_state.params.get_bool("AlphaLongitudinalEnabled"),
                                         toggle_callback=self._on_alpha_long_enabled)
+    self._bosch_c_toggle = BigToggle("Bosch C radar", "experimental, restart required",
+                                     initial_state=ui_state.params.get_bool("HondaBoschCExperimentalRadar"),
+                                     toggle_callback=self._on_bosch_c_enabled, font_size=40)
+    self._bosch_c_toggle.set_enabled(lambda: ui_state.is_offroad() and not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -106,6 +111,7 @@ class DeveloperLayoutMici(NavScroller):
       self._long_maneuver_toggle,
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
+      self._bosch_c_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -121,6 +127,7 @@ class DeveloperLayoutMici(NavScroller):
       ("LongitudinalManeuverMode", self._long_maneuver_toggle),
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
+      ("HondaBoschCExperimentalRadar", self._bosch_c_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -157,6 +164,9 @@ class DeveloperLayoutMici(NavScroller):
 
   def _update_toggles(self):
     ui_state.update_params()
+    self._bosch_c_toggle.set_visible(not ui_state.is_release and
+                                    (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
+                                     (ui_state.CP is not None and bosch_c_supported(ui_state.CP))))
 
     # CP gating
     if ui_state.CP is not None:
@@ -238,3 +248,31 @@ class DeveloperLayoutMici(NavScroller):
       gui_app.push_widget(AlphaLongConfirmPage(lambda: do_toggle(True)))
     else:
       do_toggle(False)
+
+  def _on_bosch_c_enabled(self, state: bool):
+    # The setting is read during car initialization. Never change it while
+    # onroad, including if ignition changes while the confirmation is open.
+    self._bosch_c_toggle.set_checked(ui_state.params.get_bool("HondaBoschCExperimentalRadar"))
+
+    def apply():
+      if not ui_state.is_offroad() or ui_state.engaged or ui_state.is_release:
+        return
+      if state and (ui_state.CP is None or not bosch_c_supported(ui_state.CP)):
+        return
+      ui_state.params.put_bool("HondaBoschCExperimentalRadar", state, block=True)
+      self._bosch_c_toggle.set_checked(state)
+      restart_needed_callback()
+
+    if state:
+      page = NavScroller()
+      page._scroller.add_widgets([
+        GreyBigButton("experimental Bosch C radar", "CR-V 6G with alpha longitudinal already enabled"),
+        GreyBigButton("", "Feeds radar objects into existing lead fusion. This is experimental support with limited road testing."),
+        GreyBigButton("", "Does not change radar silencing, safety settings or alpha longitudinal. Restart required."),
+        BigConfirmationCircleButton("enable Bosch C radar",
+                                    gui_app.texture("icons_mici/setup/driver_monitoring/dm_check.png", 64, 64),
+                                    lambda: page.dismiss(apply)),
+      ])
+      gui_app.push_widget(page)
+    else:
+      apply()

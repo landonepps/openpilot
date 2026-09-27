@@ -27,7 +27,7 @@ def append_marker(path, record):
 
 def capture_allowed(device_type, started, cp):
   return (device_type == 'mici' and started and cp is not None and cp.brand == 'honda' and
-          cp.carFingerprint == 'HONDA_CRV_6G' and not cp.openpilotLongitudinalControl)
+          cp.carFingerprint == 'HONDA_CRV_6G')
 
 
 class RadarCaptureController:
@@ -50,6 +50,8 @@ class RadarCaptureController:
     self.marker_future = None
     self.marker_notice = ''
     self.marker_notice_until = 0.
+    self.coexistence_status = {}
+    self.coexistence_poll = -1.
 
   @property
   def preview(self):
@@ -120,6 +122,8 @@ class RadarCaptureController:
       pass
 
   def toggle(self, allowed):
+    if self.coexistence_status.get('recording') and 0 <= self.clock() - self.coexistence_status.get('reported_monotonic_s', -100) < 1.5:
+      return
     if self.active:
       self.stop()
     else:
@@ -128,6 +132,12 @@ class RadarCaptureController:
   def poll(self, allowed):
     now = self.clock()
     self._poll_marker()
+    if now - self.coexistence_poll >= .5:
+      self.coexistence_poll = now
+      try:
+        self.coexistence_status = json.loads((self.output_dir / 'coexistence.status.json').read_text())
+      except (OSError, ValueError):
+        self.coexistence_status = {}
     if not self.active:
       if self.state in ('saved', 'stopped') and now - self.finished_at > 5:
         self.state = 'idle'
@@ -169,6 +179,9 @@ class RadarCaptureController:
 
   @property
   def label(self):
+    coex = self.coexistence_status
+    if coex.get('recording') and 0 <= self.clock() - coex.get('reported_monotonic_s', -100) < 1.5:
+      return 'REC banks' if coex.get('object_stream') else 'REC wait'
     if self.state == 'recording':
       elapsed = max(0, int(self.progress.get('elapsed_s', 0)))
       return f'Stop {elapsed // 60}:{elapsed % 60:02d}'
