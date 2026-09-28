@@ -89,6 +89,8 @@ The accepted working conversions are `dRel = 0.05 * (rawX - 4096) - 4.296`, `vRe
 
 The decoder verifies sixteen-slot banks, address-dependent CRC, counters, phase and identity consistency. Duplicate complete banks cannot refresh tracks. The live wrapper uses Linux boot time, rejects old/future-clock receive batches and expires data after 200 ms. A rejected bank publishes nothing, and the last accepted tracks stand until they expire. When no bank has been accepted for 200 ms, the adapter publishes an empty frame flagged `radarUnavailableTemporary` (soft disable, like other radars' temporary dropouts) rather than `canError` (immediate disable). A receive batch stamped in the future still reports `canError`. Hardware radar-fault bits are not decoded.
 
+`opendbc/dbc/honda_bosch_c_radar.dbc` decodes the object messages in cabana or plotjuggler: every identified field raw, plus DREL, YREL, VREL and azimuth in the accepted units. It is for analysis only; the adapter decodes the bits itself so it can verify the CRC and bank coherence.
+
 RadarD fusion, lead selection, planner/controller behavior, panda safety and radar silencing are unchanged. At highway speed, normal radar lead matching still requires vision agreement. Setting radarUnavailable=False also affects the existing radar-aware Dynamic Experimental Control branch if the user enables that separate feature; this integration does not enable it.
 
 Focused tests, without starting the native UI:
