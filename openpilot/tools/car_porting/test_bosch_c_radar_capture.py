@@ -168,6 +168,14 @@ def test_bundled_calibration_is_explicitly_provisional():
   assert calibration['parameters']['x_reference_offset'] == pytest.approx(-4.296)
 
 
+def test_bundled_calibration_matches_live_adapter():
+  from dataclasses import asdict
+  from opendbc.car.honda.bosch_c_radar_live import PROVISIONAL_CALIBRATION
+  bundled = json.loads(CALIBRATION_PATH.read_text())['parameters']
+  assert bundled == pytest.approx(asdict(PROVISIONAL_CALIBRATION))
+  assert bundled['y_scale'] == pytest.approx(0.01)
+
+
 def test_preview_expires_when_worker_status_freezes_and_clears_on_stop(capture):
   obj, now, _, _ = capture
   obj.start(True)

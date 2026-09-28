@@ -3,12 +3,12 @@
     "x_scale": 0.05,
     "x_zero": 4096,
     "x_reference_offset": -4.296000000000001,
-    "y_scale": 0.0078125,
+    "y_scale": 0.01,
     "velocity_scale": 0.1,
     "velocity_zero": 1539
   },
-  "status": "candidate physical scales; no recovered firmware constants",
+  "status": "candidate physical scales: range, velocity and lateral are accepted working conversions; no recovered firmware constants",
   "development_data": "0000016d segment 10; fixed matched wire ID19/HUD ID2; offset is a median alignment to nominal HUD positions. Velocity zero observed on stationary persistent tracks in segment 0.",
-  "physical_scale_evidence": "5 cm/count distance, 1/128 m/count lateral and 0.1 m/s/count velocity are hypotheses consistent with recordings, not independently calibrated.",
+  "physical_scale_evidence": "5 cm/count distance, 0.1 m/s/count velocity and 0.01 m/count lateral are accepted working conversions. Lateral was 1/128 m/count until 2026-09-28; gyro yaw kinematics, camera lateral and consistency with the 2^-12 rad azimuth field replaced it.",
   "do_not_refit_on_validation": true
 }

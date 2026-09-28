@@ -45,7 +45,7 @@ The comma four **Radar log** button remains available under either existing long
 
 These extra files live in `/data/media/0/bosch_c_radar/` and are not automatically uploaded. Keep the `.jsonl`, `.status.json`, `.stderr.log` and optional `.markers.jsonl` with matching route logs. **Radar log** returning to idle does not disable radar input or stop normal route logging.
 
-During this extra capture, the bird's-eye preview shows structurally accepted objects under the working calibration. Cyan points pass the empirical display guard; hollow amber points do not. The white ring and **CENTER CANDIDATE** badge select the nearest guard-passing object within 2 m of the centerline and 100 m ahead. This geometric selection is independent of the actual fused lead. The map uses positive-left lateral position, at most sixteen slots, and a 1.5-second status freshness limit. An empty map does not establish that the road is clear. The `~` label reflects the experimental preview, including provisional lateral calibration.
+During this extra capture, the bird's-eye preview shows structurally accepted objects under the working calibration. Cyan points pass the empirical display guard; hollow amber points do not. The white ring and **CENTER CANDIDATE** badge select the nearest guard-passing object within 2 m of the centerline and 100 m ahead. This geometric selection is independent of the actual fused lead. The map uses positive-left lateral position, at most sixteen slots, and a 1.5-second status freshness limit. An empty map does not establish that the road is clear. The `~` label reflects the experimental preview; range, velocity and lateral use the accepted working conversions.
 
 The usual bookmark gesture still creates a normal route bookmark. During a manual radar capture it also saves a timestamped preview snapshot asynchronously. The snapshot may be older than the gesture; use the event timestamp and full rlog for analysis.
 
@@ -83,7 +83,7 @@ The analyzer separates transport coexistence from shadow scheduling health. It r
 
 ## Runtime contract and remaining limits
 
-The accepted working conversions are `dRel = 0.05 * (rawX - 4096) - 4.296` and `vRel = 0.1 * (rawV - 1539)`. Lateral scale remains provisional. No coefficient was changed for this release.
+The accepted working conversions are `dRel = 0.05 * (rawX - 4096) - 4.296`, `vRel = 0.1 * (rawV - 1539)` and `yRel = 0.01 * signed13(rawY)` (positive left). The lateral scale changed from 1/128 to 0.01 m/count on 2026-09-28 after gyro, camera and azimuth-field checks agreed; replay showed no change in braking.
 
 The decoder verifies sixteen-slot banks, address-dependent CRC, counters, phase and identity consistency. Duplicate complete banks cannot refresh tracks. The live wrapper uses Linux boot time, rejects old/future-clock receive batches and expires data after 200 ms. Lost data produces empty invalid publications through the existing path, with normal downstream health protections. Hardware radar-fault bits are not decoded.
 
