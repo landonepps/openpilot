@@ -19,6 +19,8 @@ On comma four, **Settings → Developer → Bosch C radar** manages the opt-in. 
 
 To roll back the radar input, turn off **Bosch C radar** while offroad and let the requested restart complete. Alpha longitudinal is unaffected. Restoring an older whole build also rolls back unrelated changes; retain the tested revision and any device-local work before updating.
 
+**Settings → Developer → radar uncertainty gate** appears once the radar setting is on. It is off by default. When on, the adapter omits objects beyond 30 m while their velocity uncertainty (bits 176-185) reads above 12; points it does publish are unchanged. In replays of the recorded drives this removed the phantom braking at overpasses without delaying real braking. If no object reads at or below 12 for 2 s, the gate stops filtering. Unlike the radar setting, it applies immediately and can change onroad while openpilot is not engaged. carParamsSP records only its state at startup.
+
 ## Full-trip diagnostics are automatic
 
 The standard logger records the following in `/data/media/0/realdata/<route>--<segment>/rlog.zst` throughout normal driving. There is no ten-minute radar limit in these logs and no need to tap **Radar log**.
@@ -94,6 +96,7 @@ Focused tests, without starting the native UI:
 ```sh
 python -m pytest opendbc_repo/opendbc/car/honda/tests \
   openpilot/tools/car_porting/test_bosch_c_*.py \
+  openpilot/sunnypilot/selfdrive/car/tests/test_bosch_c_live_params.py \
   openpilot/selfdrive/ui/tests/test_bosch_c_setting.py -q
 ```
 

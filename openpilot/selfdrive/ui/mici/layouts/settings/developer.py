@@ -89,6 +89,10 @@ class DeveloperLayoutMici(NavScroller):
                                      initial_state=ui_state.params.get_bool("HondaBoschCExperimentalRadar"),
                                      toggle_callback=self._on_bosch_c_enabled, font_size=40)
     self._bosch_c_toggle.set_enabled(lambda: ui_state.is_offroad() and not ui_state.engaged)
+    self._bosch_c_gate_toggle = BigToggle("radar uncertainty gate", "Bosch C, experimental, applies immediately",
+                                          initial_state=ui_state.params.get_bool("HondaBoschCUncertaintyGate"),
+                                          toggle_callback=self._on_bosch_c_gate_enabled, font_size=40)
+    self._bosch_c_gate_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -112,6 +116,7 @@ class DeveloperLayoutMici(NavScroller):
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
       self._bosch_c_toggle,
+      self._bosch_c_gate_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -128,6 +133,7 @@ class DeveloperLayoutMici(NavScroller):
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
       ("HondaBoschCExperimentalRadar", self._bosch_c_toggle),
+      ("HondaBoschCUncertaintyGate", self._bosch_c_gate_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -167,6 +173,9 @@ class DeveloperLayoutMici(NavScroller):
     self._bosch_c_toggle.set_visible(not ui_state.is_release and
                                     (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
                                      (ui_state.CP is not None and bosch_c_supported(ui_state.CP))))
+    self._bosch_c_gate_toggle.set_visible(not ui_state.is_release and
+                                         (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
+                                          ui_state.params.get_bool("HondaBoschCUncertaintyGate")))
 
     # CP gating
     if ui_state.CP is not None:
@@ -248,6 +257,15 @@ class DeveloperLayoutMici(NavScroller):
       gui_app.push_widget(AlphaLongConfirmPage(lambda: do_toggle(True)))
     else:
       do_toggle(False)
+
+  def _on_bosch_c_gate_enabled(self, state: bool):
+    # card applies this live (bosch_c_live_params), so it may change onroad,
+    # but never while engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._bosch_c_gate_toggle.set_checked(ui_state.params.get_bool("HondaBoschCUncertaintyGate"))
+      return
+    ui_state.params.put_bool("HondaBoschCUncertaintyGate", state, block=True)
+    self._bosch_c_gate_toggle.set_checked(state)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while
