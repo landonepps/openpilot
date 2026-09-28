@@ -99,7 +99,7 @@ def analyze(path):
       before = adapter.decoder.counters['accepted_banks']
       rr = adapter.update([(ns, frames)])
       if adapter.decoder.counters['accepted_banks'] > before:
-        banks.append((ns, bool(rr is not None and not rr.errors.canError)))
+        banks.append((ns, bool(rr is not None and not any(rr.errors.to_dict().values()))))
         active_banks.append((ns, len(adapter.decoder.tracks), len(rr.points) if rr is not None else 0))
   result.update(receive_buses={'powertrain': buses.pt, 'objects': buses.radar}, disable_attempts=attempts,
                 disable_tx_receipts=receipts, ecu_responses=responses, decoder_counters=dict(adapter.decoder.counters),

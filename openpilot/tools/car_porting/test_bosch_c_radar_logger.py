@@ -47,7 +47,7 @@ def test_late_delivery_after_timeout_retains_raw_without_reviving_track():
   adapter = BoschCRadarInterface(cp(), structs.CarParamsSP(), calibration=CALIBRATION, clock=lambda: 300_000_000)
   diagnostic_record(adapter, [(0, bank())])
   timeout = diagnostic_record(adapter, [])
-  assert timeout['radar_data']['errors']['canError']
+  assert timeout['radar_data']['errors']['radarUnavailableTemporary']
   late = diagnostic_record(adapter, [(250_000_000, bank(1))])
   assert late['late_packets_not_decoded'] == 1 and len(late['raw_frames']) == 16
   assert not adapter.decoder.tracks
