@@ -21,6 +21,8 @@ To roll back the radar input, turn off **Bosch C radar** while offroad and let t
 
 **Settings → Developer → radar uncertainty gate** appears once the radar setting is on. It is off by default. When on, the adapter omits objects beyond 30 m while their velocity uncertainty (bits 176-185) reads above 12; points it does publish are unchanged. In replays of the recorded drives this removed the phantom braking at overpasses without delaying real braking. If no object reads at or below 12 for 2 s, the gate stops filtering. Unlike the radar setting, it applies immediately and can change onroad while openpilot is not engaged. carParamsSP records only its state at startup.
 
+**Dash display.** Under alpha longitudinal the dash draws openpilot's lane path and lead at the addresses this CR-V's radar uses. With the Bosch C radar on, the other dash slots show the radar's decoded vehicles, and each vehicle, including openpilot's lead when it matches one, gets the radar-reported class icon: car, truck or motorcycle. Class comes from bits 60-63 (1 car, 3 truck, 6 motorcycle; pedestrians and bicycles are never drawn). This is display only: RadarData still carries status-1 objects only. Watching the icons on live drives is a direct check of the class decode, which is confirmed against the stock dash for cars and trucks and still sparse for motorcycles.
+
 ## Full-trip diagnostics are automatic
 
 The standard logger records the following in `/data/media/0/realdata/<route>--<segment>/rlog.zst` throughout normal driving. There is no ten-minute radar limit in these logs and no need to tap **Radar log**.
