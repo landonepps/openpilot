@@ -470,7 +470,14 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   }
 }
 
-struct CustomReserved10 @0xcb9fd56c7057593a {
+# Per-track radar fields that RadarData has no place for, published by card just before each radarTracks message
+struct RadarTracksSP @0xcb9fd56c7057593a {
+  points @0 :List(RadarPoint);
+
+  struct RadarPoint {
+    trackId @0 :UInt64;  # the radarTracks point it belongs to
+    vRelStd @1 :Float32;  # m/s, the radar's own speed uncertainty for this reading as a standard deviation
+  }
 }
 
 struct CustomReserved11 @0xc2243c65e0340384 {

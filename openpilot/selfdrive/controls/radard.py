@@ -33,6 +33,11 @@ V_EGO_STATIONARY = 4.   # no stationary object flag below this speed
 # measured speed with zero acceleration for this long, and the filter starts from there.
 NEW_TRACK_HOLD_S = 0.5
 
+# RadarUncertaintyFilter: where the radar reports a speed uncertainty for each reading (radarTracksSP; only the Bosch C
+# radar does), each track's filter weights the reading by it. Tracks whose readings stay at or below this noise keep
+# the fixed-gain behavior. On Bosch C those are settled tracks (velocity uncertainty 6 or less); new and far tracks can
+# read several times higher.
+V_REL_STD_NOMINAL = 0.37  # m/s
 RADAR_TO_CAMERA = 1.52  # RADAR is ~ 1.5m ahead from center of mesh frame
 
 
@@ -57,9 +62,45 @@ class KalmanParams:
           0.26393339, 0.26278425]
     self.K = [[np.interp(dt, dts, K0)], [np.interp(dt, dts, K1)]]
 
+    # K is the steady-state gain of the predictor-form filter with these noises (at the tabulated dts), and P its
+    # predicted covariance, where WeightedKF1D starts
+    self.Q = [[10., 0.], [0., 100.]]
+    self.R = 1e3
+    p00 = p01 = p11 = 0.
+    for _ in range(1000):
+      s = p00 + self.R
+      k0, k1 = (p00 + dt * p01) / s, p01 / s
+      p00, p01, p11 = (p00 + 2 * dt * p01 + dt * dt * p11 + self.Q[0][0] - k0 * k0 * s,
+                       p01 + dt * p11 + self.Q[0][1] - k0 * k1 * s,
+                       p11 + self.Q[1][1] - k1 * k1 * s)
+    self.P = [[p00, p01], [p01, p11]]
+
+
+class WeightedKF1D(KF1D):
+  """KF1D in its time-varying form: each reading's measurement noise follows the speed uncertainty the radar reports
+  for it (RadarUncertaintyFilter). KF1D's fixed gain is this filter's steady state at the nominal noise. Readings at or
+  below V_REL_STD_NOMINAL, or without a reported uncertainty, use that nominal noise; noisier readings count less."""
+  def __init__(self, x0, kalman_params: KalmanParams):
+    super().__init__(x0, kalman_params.A, kalman_params.C, kalman_params.K)
+    self.dt = kalman_params.A[0][1]
+    self.Q, self.R = kalman_params.Q, kalman_params.R
+    (self.p00, self.p01), (_, self.p11) = kalman_params.P
+
+  def update(self, meas, v_std: float | None = None):
+    r = self.R * max((v_std or 0.) / V_REL_STD_NOMINAL, 1.) ** 2
+    dt, p00, p01, p11 = self.dt, self.p00, self.p01, self.p11
+    s = p00 + r
+    k0, k1 = (p00 + dt * p01) / s, p01 / s
+    innovation = meas - self.x0_0
+    self.x0_0, self.x1_0 = self.x0_0 + dt * self.x1_0 + k0 * innovation, self.x1_0 + k1 * innovation
+    self.p00 = p00 + 2 * dt * p01 + dt * dt * p11 + self.Q[0][0] - k0 * k0 * s
+    self.p01 = p01 + dt * p11 + self.Q[0][1] - k0 * k1 * s
+    self.p11 = p11 + self.Q[1][1] - k1 * k1 * s
+    return [self.x0_0, self.x1_0]
+
 
 class Track:
-  def __init__(self, identifier: int, v_lead: float, kalman_params: KalmanParams, hold_cnt: int = 0):
+  def __init__(self, identifier: int, v_lead: float, kalman_params: KalmanParams, hold_cnt: int = 0, weighted: bool = False):
     self.identifier = identifier
     self.cnt = 0
     self.hold_cnt = hold_cnt  # updates that publish zero acceleration before the filter starts (NEW_TRACK_HOLD_S)
@@ -67,9 +108,12 @@ class Track:
     self.K_A = kalman_params.A
     self.K_C = kalman_params.C
     self.K_K = kalman_params.K
-    self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
+    if weighted:  # RadarUncertaintyFilter
+      self.kf = WeightedKF1D([[v_lead], [0.0]], kalman_params)
+    else:
+      self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
 
-  def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float):
+  def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float, v_rel_std: float | None = None):
     # relative values, copy
     self.dRel = d_rel   # LONG_DIST
     self.yRel = y_rel   # -LAT_DIST
@@ -87,7 +131,10 @@ class Track:
 
     # computed velocity and accelerations
     if self.cnt > 0:
-      self.kf.update(self.vLead)
+      if isinstance(self.kf, WeightedKF1D):
+        self.kf.update(self.vLead, v_rel_std)
+      else:
+        self.kf.update(self.vLead)
 
     self.vLeadK = float(self.kf.x[SPEED][0])
     self.aLeadK = float(self.kf.x[ACCEL][0])
@@ -229,13 +276,15 @@ class RadarD:
     self.params = Params()
     self.frame = 0
     self.new_track_hold_cnt = 0
+    self.uncertainty_filter = False
 
   def read_params(self) -> None:
     # about once a second; a change applies to tracks created after it
     if self.frame % int(1. / DT_MDL) == 0:
       self.new_track_hold_cnt = round(NEW_TRACK_HOLD_S / DT_MDL) if self.params.get_bool("RadarNewTrackHold") else 0
+      self.uncertainty_filter = self.params.get_bool("RadarUncertaintyFilter")
 
-  def update(self, sm: messaging.SubMaster, rr: car.RadarData):
+  def update(self, sm: messaging.SubMaster, rr: car.RadarData, rr_sp: capnp._DynamicStructReader | None = None):
     self.read_params()
     self.frame += 1
     self.ready = sm.seen['modelV2']
@@ -246,6 +295,8 @@ class RadarD:
       self.last_v_ego_frame = sm.recv_frame['carState']
 
     ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel] for pt in rr.points}
+    # each reading's speed uncertainty, where the radar reports one
+    v_rel_stds = {pt.trackId: pt.vRelStd for pt in rr_sp.points} if rr_sp is not None else {}
 
     # *** remove missing points from meta data ***
     for ids in list(self.tracks.keys()):
@@ -261,8 +312,8 @@ class RadarD:
 
       # create the track if it doesn't exist or it's a new track
       if ids not in self.tracks:
-        self.tracks[ids] = Track(ids, v_lead, self.kalman_params, self.new_track_hold_cnt)
-      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead)
+        self.tracks[ids] = Track(ids, v_lead, self.kalman_params, self.new_track_hold_cnt, self.uncertainty_filter)
+      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, v_rel_stds.get(ids))
 
     # *** publish radarState ***
     self.radar_state_valid = sm.all_checks()
@@ -312,7 +363,9 @@ def main() -> None:
   cloudlog.info("radard got CarParamsSP")
 
   # *** setup messaging
-  sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
+  # radarTracksSP comes only from radars that report per-track extras
+  sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks', 'radarTracksSP'], poll='modelV2',
+                           ignore_alive=['radarTracksSP'], ignore_avg_freq=['radarTracksSP'], ignore_valid=['radarTracksSP'])
   pm = messaging.PubMaster(['radarState'])
 
   RD = RadarD(CP, CP_SP, CP.radarDelay)
@@ -320,7 +373,7 @@ def main() -> None:
   while 1:
     sm.update()
 
-    RD.update(sm, sm['radarTracks'])
+    RD.update(sm, sm['radarTracks'], sm['radarTracksSP'])
     RD.publish(pm)
 
 

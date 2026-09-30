@@ -101,6 +101,10 @@ class DeveloperLayoutMici(NavScroller):
                                             initial_state=ui_state.params.get_bool("RadarNewTrackHold"),
                                             toggle_callback=self._on_new_track_hold, font_size=40)
     self._new_track_hold_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._uncertainty_filter_toggle = BigToggle("radar uncertainty filter", "Bosch C, experimental, new tracks only",
+                                                initial_state=ui_state.params.get_bool("RadarUncertaintyFilter"),
+                                                toggle_callback=self._on_uncertainty_filter, font_size=40)
+    self._uncertainty_filter_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -127,6 +131,7 @@ class DeveloperLayoutMici(NavScroller):
       self._bosch_c_gate_toggle,
       self._model_lead_toggle,
       self._new_track_hold_toggle,
+      self._uncertainty_filter_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -146,6 +151,7 @@ class DeveloperLayoutMici(NavScroller):
       ("HondaBoschCUncertaintyGate", self._bosch_c_gate_toggle),
       ("ModelLeadTrajectory", self._model_lead_toggle),
       ("RadarNewTrackHold", self._new_track_hold_toggle),
+      ("RadarUncertaintyFilter", self._uncertainty_filter_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -192,6 +198,10 @@ class DeveloperLayoutMici(NavScroller):
                                         (ui_state.has_longitudinal_control or ui_state.params.get_bool("ModelLeadTrajectory")))
     self._new_track_hold_toggle.set_visible(not ui_state.is_release and
                                             (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarNewTrackHold")))
+    # only the Bosch C radar reports the per-track speed uncertainty it uses
+    self._uncertainty_filter_toggle.set_visible(not ui_state.is_release and
+                                                (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
+                                                 ui_state.params.get_bool("RadarUncertaintyFilter")))
 
     # CP gating
     if ui_state.CP is not None:
@@ -299,6 +309,14 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("RadarNewTrackHold", state, block=True)
     self._new_track_hold_toggle.set_checked(state)
+
+  def _on_uncertainty_filter(self, state: bool):
+    # radard reads this about once a second and applies it to tracks that start after. Only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._uncertainty_filter_toggle.set_checked(ui_state.params.get_bool("RadarUncertaintyFilter"))
+      return
+    ui_state.params.put_bool("RadarUncertaintyFilter", state, block=True)
+    self._uncertainty_filter_toggle.set_checked(state)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while
