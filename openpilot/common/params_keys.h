@@ -44,6 +44,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ModelLeadTrajectory", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"RadarNewTrackHold", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"RadarUncertaintyFilter", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
+    {"RadarConfirmedFaintLead", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"ExperimentalMode", {PERSISTENT | BACKUP, BOOL}},
     {"ExperimentalModeConfirmed", {PERSISTENT | BACKUP, BOOL}},
     {"FirmwareQueryDone", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},

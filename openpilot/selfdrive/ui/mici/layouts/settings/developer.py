@@ -105,6 +105,10 @@ class DeveloperLayoutMici(NavScroller):
                                                 initial_state=ui_state.params.get_bool("RadarUncertaintyFilter"),
                                                 toggle_callback=self._on_uncertainty_filter, font_size=40)
     self._uncertainty_filter_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._faint_lead_toggle = BigToggle("radar-confirmed faint lead", "experimental, applies immediately",
+                                        initial_state=ui_state.params.get_bool("RadarConfirmedFaintLead"),
+                                        toggle_callback=self._on_faint_lead, font_size=40)
+    self._faint_lead_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -132,6 +136,7 @@ class DeveloperLayoutMici(NavScroller):
       self._model_lead_toggle,
       self._new_track_hold_toggle,
       self._uncertainty_filter_toggle,
+      self._faint_lead_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -152,6 +157,7 @@ class DeveloperLayoutMici(NavScroller):
       ("ModelLeadTrajectory", self._model_lead_toggle),
       ("RadarNewTrackHold", self._new_track_hold_toggle),
       ("RadarUncertaintyFilter", self._uncertainty_filter_toggle),
+      ("RadarConfirmedFaintLead", self._faint_lead_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -202,6 +208,8 @@ class DeveloperLayoutMici(NavScroller):
     self._uncertainty_filter_toggle.set_visible(not ui_state.is_release and
                                                 (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
                                                  ui_state.params.get_bool("RadarUncertaintyFilter")))
+    self._faint_lead_toggle.set_visible(not ui_state.is_release and
+                                        (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarConfirmedFaintLead")))
 
     # CP gating
     if ui_state.CP is not None:
@@ -317,6 +325,15 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("RadarUncertaintyFilter", state, block=True)
     self._uncertainty_filter_toggle.set_checked(state)
+
+  def _on_faint_lead(self, state: bool):
+    # radard reads this about once a second. Taking or dropping a lead mid-follow changes the plan, so only while not
+    # engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._faint_lead_toggle.set_checked(ui_state.params.get_bool("RadarConfirmedFaintLead"))
+      return
+    ui_state.params.put_bool("RadarConfirmedFaintLead", state, block=True)
+    self._faint_lead_toggle.set_checked(state)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while

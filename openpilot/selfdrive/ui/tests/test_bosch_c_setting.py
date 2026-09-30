@@ -81,6 +81,7 @@ LIVE_SETTINGS = [
   ('_on_model_lead_trajectory', '_model_lead_toggle', 'ModelLeadTrajectory'),
   ('_on_new_track_hold', '_new_track_hold_toggle', 'RadarNewTrackHold'),
   ('_on_uncertainty_filter', '_uncertainty_filter_toggle', 'RadarUncertaintyFilter'),
+  ('_on_faint_lead', '_faint_lead_toggle', 'RadarConfirmedFaintLead'),
 ]
 
 
