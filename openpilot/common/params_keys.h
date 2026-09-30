@@ -42,6 +42,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaBoschCExperimentalRadar", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"HondaBoschCUncertaintyGate", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"ModelLeadTrajectory", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
+    {"RadarNewTrackHold", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"ExperimentalMode", {PERSISTENT | BACKUP, BOOL}},
     {"ExperimentalModeConfirmed", {PERSISTENT | BACKUP, BOOL}},
     {"FirmwareQueryDone", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},

@@ -79,6 +79,7 @@ def test_disable_remains_available_without_supported_carparams():
 LIVE_SETTINGS = [
   ('_on_bosch_c_gate_enabled', '_bosch_c_gate_toggle', 'HondaBoschCUncertaintyGate'),
   ('_on_model_lead_trajectory', '_model_lead_toggle', 'ModelLeadTrajectory'),
+  ('_on_new_track_hold', '_new_track_hold_toggle', 'RadarNewTrackHold'),
 ]
 
 

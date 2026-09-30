@@ -27,6 +27,12 @@ SPEED, ACCEL = 0, 1     # Kalman filter states enum
 # stationary qualification parameters
 V_EGO_STATIONARY = 4.   # no stationary object flag below this speed
 
+# RadarNewTrackHold: a new track's reported speed can take a few sweeps to settle. On the Bosch C radar a new far track
+# can read 5-6 m/s off for its first ~0.3 s while its range stays flat, and a filter seeded from it reports that as
+# several m/s^2 of lead acceleration when the track becomes the lead. With the setting on, a track publishes its
+# measured speed with zero acceleration for this long, and the filter starts from there.
+NEW_TRACK_HOLD_S = 0.5
+
 RADAR_TO_CAMERA = 1.52  # RADAR is ~ 1.5m ahead from center of mesh frame
 
 
@@ -53,9 +59,10 @@ class KalmanParams:
 
 
 class Track:
-  def __init__(self, identifier: int, v_lead: float, kalman_params: KalmanParams):
+  def __init__(self, identifier: int, v_lead: float, kalman_params: KalmanParams, hold_cnt: int = 0):
     self.identifier = identifier
     self.cnt = 0
+    self.hold_cnt = hold_cnt  # updates that publish zero acceleration before the filter starts (NEW_TRACK_HOLD_S)
     self.aLeadTau = FirstOrderFilter(_LEAD_ACCEL_TAU, 0.45, DT_MDL)
     self.K_A = kalman_params.A
     self.K_C = kalman_params.C
@@ -68,6 +75,15 @@ class Track:
     self.yRel = y_rel   # -LAT_DIST
     self.vRel = v_rel   # REL_SPEED
     self.vLead = v_lead
+
+    if self.cnt < self.hold_cnt:
+      # new track: its speed may still be settling, so no acceleration yet; the filter starts from the last of these
+      self.kf.set_x([[self.vLead], [0.0]])
+      self.vLeadK = float(self.vLead)
+      self.aLeadK = 0.0
+      self.aLeadTau.x = _LEAD_ACCEL_TAU
+      self.cnt += 1
+      return
 
     # computed velocity and accelerations
     if self.cnt > 0:
@@ -210,7 +226,18 @@ class RadarD:
 
     self.ready = False
 
+    self.params = Params()
+    self.frame = 0
+    self.new_track_hold_cnt = 0
+
+  def read_params(self) -> None:
+    # about once a second; a change applies to tracks created after it
+    if self.frame % int(1. / DT_MDL) == 0:
+      self.new_track_hold_cnt = round(NEW_TRACK_HOLD_S / DT_MDL) if self.params.get_bool("RadarNewTrackHold") else 0
+
   def update(self, sm: messaging.SubMaster, rr: car.RadarData):
+    self.read_params()
+    self.frame += 1
     self.ready = sm.seen['modelV2']
 
     if sm.recv_frame['carState'] != self.last_v_ego_frame:
@@ -234,7 +261,7 @@ class RadarD:
 
       # create the track if it doesn't exist or it's a new track
       if ids not in self.tracks:
-        self.tracks[ids] = Track(ids, v_lead, self.kalman_params)
+        self.tracks[ids] = Track(ids, v_lead, self.kalman_params, self.new_track_hold_cnt)
       self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead)
 
     # *** publish radarState ***

@@ -97,6 +97,10 @@ class DeveloperLayoutMici(NavScroller):
                                         initial_state=ui_state.params.get_bool("ModelLeadTrajectory"),
                                         toggle_callback=self._on_model_lead_trajectory, font_size=40)
     self._model_lead_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._new_track_hold_toggle = BigToggle("new radar track hold", "experimental, applies immediately",
+                                            initial_state=ui_state.params.get_bool("RadarNewTrackHold"),
+                                            toggle_callback=self._on_new_track_hold, font_size=40)
+    self._new_track_hold_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -122,6 +126,7 @@ class DeveloperLayoutMici(NavScroller):
       self._bosch_c_toggle,
       self._bosch_c_gate_toggle,
       self._model_lead_toggle,
+      self._new_track_hold_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -140,6 +145,7 @@ class DeveloperLayoutMici(NavScroller):
       ("HondaBoschCExperimentalRadar", self._bosch_c_toggle),
       ("HondaBoschCUncertaintyGate", self._bosch_c_gate_toggle),
       ("ModelLeadTrajectory", self._model_lead_toggle),
+      ("RadarNewTrackHold", self._new_track_hold_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -184,6 +190,8 @@ class DeveloperLayoutMici(NavScroller):
                                           ui_state.params.get_bool("HondaBoschCUncertaintyGate")))
     self._model_lead_toggle.set_visible(not ui_state.is_release and
                                         (ui_state.has_longitudinal_control or ui_state.params.get_bool("ModelLeadTrajectory")))
+    self._new_track_hold_toggle.set_visible(not ui_state.is_release and
+                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarNewTrackHold")))
 
     # CP gating
     if ui_state.CP is not None:
@@ -283,6 +291,14 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("ModelLeadTrajectory", state, block=True)
     self._model_lead_toggle.set_checked(state)
+
+  def _on_new_track_hold(self, state: bool):
+    # radard reads this about once a second and applies it to tracks that start after. Only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._new_track_hold_toggle.set_checked(ui_state.params.get_bool("RadarNewTrackHold"))
+      return
+    ui_state.params.put_bool("RadarNewTrackHold", state, block=True)
+    self._new_track_hold_toggle.set_checked(state)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while
