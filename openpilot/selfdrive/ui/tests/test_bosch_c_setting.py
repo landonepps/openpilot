@@ -76,12 +76,18 @@ def test_disable_remains_available_without_supported_carparams():
   assert values['AlphaLongitudinalEnabled']
 
 
-def gate_setting():
+LIVE_SETTINGS = [
+  ('_on_bosch_c_gate_enabled', '_bosch_c_gate_toggle', 'HondaBoschCUncertaintyGate'),
+  ('_on_model_lead_trajectory', '_model_lead_toggle', 'ModelLeadTrajectory'),
+]
+
+
+def live_setting(method_name, toggle, key):
   path = Path(__file__).parents[1] / 'mici/layouts/settings/developer.py'
   tree = ast.parse(path.read_text())
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'DeveloperLayoutMici')
-  method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_on_bosch_c_gate_enabled')
-  values = {'HondaBoschCUncertaintyGate': False}
+  method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == method_name)
+  values = {key: False}
   writes, restarts, checked = [], [], []
 
   def put(key, value, **_):
@@ -94,21 +100,23 @@ def gate_setting():
   wrapper = ast.ClassDef(name='Setting', bases=[], keywords=[], body=[method], decorator_list=[])
   exec(compile(ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[])), str(path), 'exec'), namespace)
   obj = namespace['Setting']()
-  obj._bosch_c_gate_toggle = SimpleNamespace(set_checked=checked.append)
-  return obj, state, writes, restarts, checked
+  setattr(obj, toggle, SimpleNamespace(set_checked=checked.append))
+  return getattr(obj, method_name), state, writes, restarts, checked
 
 
-def test_gate_toggles_onroad_while_disengaged_without_restart():
-  obj, state, writes, restarts, checked = gate_setting()
-  obj._on_bosch_c_gate_enabled(True)
-  obj._on_bosch_c_gate_enabled(False)
-  assert writes == [('HondaBoschCUncertaintyGate', True), ('HondaBoschCUncertaintyGate', False)]
+@pytest.mark.parametrize('method,toggle,key', LIVE_SETTINGS)
+def test_live_setting_toggles_onroad_while_disengaged_without_restart(method, toggle, key):
+  callback, state, writes, restarts, checked = live_setting(method, toggle, key)
+  callback(True)
+  callback(False)
+  assert writes == [(key, True), (key, False)]
   assert checked == [True, False] and not restarts
 
 
 @pytest.mark.parametrize('change', ['engaged', 'release'])
-def test_gate_refuses_while_engaged_or_on_release(change):
-  obj, state, writes, restarts, checked = gate_setting()
+@pytest.mark.parametrize('method,toggle,key', LIVE_SETTINGS)
+def test_live_setting_refuses_while_engaged_or_on_release(method, toggle, key, change):
+  callback, state, writes, restarts, checked = live_setting(method, toggle, key)
   setattr(state, 'engaged' if change == 'engaged' else 'is_release', True)
-  obj._on_bosch_c_gate_enabled(True)
+  callback(True)
   assert not writes and checked == [False] and not restarts

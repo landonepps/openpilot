@@ -8,6 +8,8 @@ See the LICENSE.md file in the root directory for more details.
 from openpilot.cereal import messaging, custom
 from opendbc.car import structs
 from openpilot.common.constants import CV
+from openpilot.common.params import Params
+from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
@@ -35,6 +37,18 @@ class LongitudinalPlannerSP:
 
     self.output_v_target = 0.
     self.output_a_target = 0.
+
+    self.params = Params()
+    self.frame = 0
+    self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
+
+  def read_params(self) -> None:
+    if self.frame % int(1. / DT_MDL) == 0:
+      self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
+
+  def model_leads(self, sm: messaging.SubMaster):
+    # The model's lead predictions, when the MPC should plan against them (long_mpc.model_lead_trajectory)
+    return sm['modelV2'].leadsV3 if self.model_lead_trajectory else None
 
   def is_e2e(self, sm: messaging.SubMaster) -> bool:
     experimental_mode = sm['selfdriveState'].experimentalMode
@@ -74,6 +88,8 @@ class LongitudinalPlannerSP:
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
+    self.read_params()
+    self.frame += 1
     self.events_sp.clear()
     self.dec.update(sm)
     self.e2e_alerts_helper.update(sm, self.events_sp)
