@@ -5,11 +5,11 @@
     "x_reference_offset": -4.296000000000001,
     "y_scale": 0.01,
     "velocity_scale": 0.1,
-    "velocity_zero": 1539
+    "velocity_zero": 1540
   },
-  "status": "candidate physical scales: range, velocity and lateral are accepted working conversions; no recovered firmware constants",
-  "development_data": "0000016d segment 10; fixed matched wire ID19/HUD ID2; offset is a median alignment to nominal HUD positions. Velocity zero observed on stationary persistent tracks in segment 0.",
-  "physical_scale_evidence": "5 cm/count distance, 0.1 m/s/count velocity and 0.01 m/count lateral are accepted working conversions. Lateral was 1/128 m/count until 2026-09-28; gyro yaw kinematics, camera lateral and consistency with the 2^-12 rad azimuth field replaced it.",
+  "status": "candidate calibration: the scales and zeros are the radar firmware decode (8S302-3A0-A230 and -A070 read range as 0.05*raw m, lateral as 0.01*raw - 81.91 m and velocity as 0.1*raw - 154.0 m/s; bosch-c-research docs/radar-firmware-a230.md). The x_reference_offset is still a candidate: our measured offset to the bumper reference, since the firmware reads range with no offset.",
+  "development_data": "0000016d segment 10; fixed matched wire ID19/HUD ID2; the range offset is a median alignment to nominal HUD positions. Velocity zero was 1539 from stationary persistent tracks in segment 0 until 2026-10-02, when it moved to the firmware zero 1540.",
+  "physical_scale_evidence": "5 cm/count distance, 0.1 m/s/count velocity and 0.01 m/count lateral match the radar firmware's own getters (2026-10-02), as did the earlier accepted working conversions. Lateral was 1/128 m/count until 2026-09-28.",
   "do_not_refit_on_validation": true,
   "range_field": "Range is 48:12 (accepted 2026-09-28 on held-out routes); bits 60-63 are the object class. dRel = 0.05*raw12 - 4.296 m. Before 2026-09-28 range was read as 48:13 with x_zero 4096, identical for status-1 objects."
 }

@@ -89,7 +89,7 @@ def test_progress_returns_to_waiting_when_radar_stream_expires():
 
 def test_preview_includes_stationary_and_guard_rejected_objects():
   adapter = BoschCRadarInterface(cp(), structs.CarParamsSP(), calibration=CALIBRATION)
-  diagnostic_record(adapter, [(0, bank(velocity=1539))])
+  diagnostic_record(adapter, [(0, bank(velocity=1540))])
   preview = radar_preview(adapter)
   assert preview['tracks'][0]['v'] == 0
   assert preview['tracks'][0]['candidate']
