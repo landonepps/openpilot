@@ -7,12 +7,13 @@ See the LICENSE.md file in the root directory for more details.
 
 import numpy as np
 
-from openpilot.cereal import messaging, custom
+from openpilot.cereal import messaging, custom, log
 from opendbc.car import structs
 from opendbc.car.interfaces import ACCEL_MAX
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
+from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import get_T_FOLLOW
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
@@ -24,6 +25,7 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 
 DecState = custom.LongitudinalPlanSP.DynamicExperimentalControl.DynamicExperimentalControlState
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
+LongitudinalPersonality = log.LongitudinalPersonality
 
 # GentleHighwayPickup: at highway speed the plan accelerates up to the cruise limit, 0.8 m/s^2 at 25 m/s falling to 0.6 at
 # 40 m/s. The cruise target sits at that limit while a lead holds the plan down, so after a brake the plan goes straight
@@ -37,6 +39,21 @@ GENTLE_PICKUP_MAX_ACCEL = [ACCEL_MAX, 0.3]  # m/s^2
 GENTLE_PICKUP_JERK = [10., 0.25]  # m/s^3
 # an acceleration above the limit, as after the driver lets go of the gas, comes down to it at this rate rather than at once
 GENTLE_PICKUP_RELEASE_JERK = 1.0  # m/s^3
+
+# PersonalityGapOnly: the personality (the distance button) sets only the following gap, and every personality keeps
+# standard's jerk and acceleration-change costs. Relaxed keeps its own gap, standard takes aggressive's, and aggressive
+# takes stock ACC's. Stock ACC on the CR-V settled a median 28 m behind a lead at 29 m/s, 0.98 s of distance per speed
+# (bosch-c-research docs/stock-acc-far-leads.md). The MPC's gap is t_follow * v + 6 m, so 0.8 s gives the same distance
+# at highway speed (29 m at 29 m/s) and a longer one in town (16 m at 13 m/s).
+STOCK_GAP_T_FOLLOW = 0.8  # s
+
+
+def get_gap_only_T_FOLLOW(personality) -> float:
+  if personality == LongitudinalPersonality.aggressive:
+    return STOCK_GAP_T_FOLLOW
+  if personality == LongitudinalPersonality.standard:
+    return get_T_FOLLOW(LongitudinalPersonality.aggressive)
+  return get_T_FOLLOW(personality)
 
 
 class LongitudinalPlannerSP:
@@ -58,15 +75,29 @@ class LongitudinalPlannerSP:
     self.frame = 0
     self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
     self.gentle_pickup = self.params.get_bool("GentleHighwayPickup")
+    self.gap_only = self.params.get_bool("PersonalityGapOnly")
 
   def read_params(self) -> None:
     if self.frame % int(1. / DT_MDL) == 0:
       self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
       self.gentle_pickup = self.params.get_bool("GentleHighwayPickup")
+      self.gap_only = self.params.get_bool("PersonalityGapOnly")
 
   def model_leads(self, sm: messaging.SubMaster):
     # The model's lead predictions, when the MPC should plan against them (long_mpc.model_lead_trajectory)
     return sm['modelV2'].leadsV3 if self.model_lead_trajectory else None
+
+  def t_follow(self, sm: messaging.SubMaster) -> float | None:
+    """The MPC's following time: PersonalityGapOnly's gap for the personality, or None for the personality's own."""
+    if self.gap_only:
+      return get_gap_only_T_FOLLOW(sm['selfdriveState'].personality)
+    return None
+
+  def weights_personality(self, sm: messaging.SubMaster):
+    """The personality whose MPC cost weights to use: standard for every personality under PersonalityGapOnly."""
+    if self.gap_only:
+      return LongitudinalPersonality.standard
+    return sm['selfdriveState'].personality
 
   def limit_pickup(self, v_ego: float, a_target: float, a_prev: float, dt: float) -> float:
     """GentleHighwayPickup: the plan's acceleration target with its rise and its ceiling limited at speed, given the

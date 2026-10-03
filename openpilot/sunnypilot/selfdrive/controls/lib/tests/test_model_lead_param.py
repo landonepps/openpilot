@@ -15,9 +15,9 @@ class TestModelLeadParam(OpenpilotTestCase):
     seen = []
     update = planner.mpc.update
 
-    def spy(radarstate, personality, model_leads=None):
+    def spy(radarstate, personality, model_leads=None, **kwargs):
       seen.append(model_leads)
-      return update(radarstate, personality=personality, model_leads=model_leads)
+      return update(radarstate, personality=personality, model_leads=model_leads, **kwargs)
     planner.mpc.update = spy
     for _ in range(ticks):
       planner.update(sm)

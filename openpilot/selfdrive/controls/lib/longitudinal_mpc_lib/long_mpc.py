@@ -336,8 +336,10 @@ class LongitudinalMpc:
     lead_xv = self.extrapolate_lead(x_lead, v_lead, a_lead, a_lead_tau)
     return lead_xv
 
-  def update(self, radarstate, personality=log.LongitudinalPersonality.standard, model_leads=None):
-    t_follow = get_T_FOLLOW(personality)
+  def update(self, radarstate, personality=log.LongitudinalPersonality.standard, model_leads=None, t_follow=None):
+    # t_follow: a following time other than the personality's (PersonalityGapOnly)
+    if t_follow is None:
+      t_follow = get_T_FOLLOW(personality)
 
     # model_leads: modelV2.leadsV3, to plan against the model's predicted lead trajectories (model_lead_trajectory)
     if model_leads is None or len(model_leads) < 2:

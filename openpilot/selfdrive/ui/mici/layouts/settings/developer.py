@@ -117,6 +117,10 @@ class DeveloperLayoutMici(NavScroller):
                                            initial_state=ui_state.params.get_bool("GentleHighwayPickup"),
                                            toggle_callback=self._on_gentle_pickup, font_size=40)
     self._gentle_pickup_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._gap_only_toggle = BigToggle("personality sets gap only", "experimental, applies immediately",
+                                      initial_state=ui_state.params.get_bool("PersonalityGapOnly"),
+                                      toggle_callback=self._on_gap_only, font_size=40)
+    self._gap_only_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -147,6 +151,7 @@ class DeveloperLayoutMici(NavScroller):
       self._faint_lead_toggle,
       self._lateral_match_toggle,
       self._gentle_pickup_toggle,
+      self._gap_only_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -170,6 +175,7 @@ class DeveloperLayoutMici(NavScroller):
       ("RadarConfirmedFaintLead", self._faint_lead_toggle),
       ("RadarLateralMatch", self._lateral_match_toggle),
       ("GentleHighwayPickup", self._gentle_pickup_toggle),
+      ("PersonalityGapOnly", self._gap_only_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -226,6 +232,8 @@ class DeveloperLayoutMici(NavScroller):
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarLateralMatch")))
     self._gentle_pickup_toggle.set_visible(not ui_state.is_release and
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("GentleHighwayPickup")))
+    self._gap_only_toggle.set_visible(not ui_state.is_release and
+                                      (ui_state.has_longitudinal_control or ui_state.params.get_bool("PersonalityGapOnly")))
 
     # CP gating
     if ui_state.CP is not None:
@@ -367,6 +375,15 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("GentleHighwayPickup", state, block=True)
     self._gentle_pickup_toggle.set_checked(state)
+
+  def _on_gap_only(self, state: bool):
+    # plannerd reads this about once a second. Changing the following gap mid-follow changes the plan, so only while not
+    # engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._gap_only_toggle.set_checked(ui_state.params.get_bool("PersonalityGapOnly"))
+      return
+    ui_state.params.put_bool("PersonalityGapOnly", state, block=True)
+    self._gap_only_toggle.set_checked(state)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while
