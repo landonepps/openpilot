@@ -83,6 +83,7 @@ LIVE_SETTINGS = [
   ('_on_uncertainty_filter', '_uncertainty_filter_toggle', 'RadarUncertaintyFilter'),
   ('_on_faint_lead', '_faint_lead_toggle', 'RadarConfirmedFaintLead'),
   ('_on_lateral_match', '_lateral_match_toggle', 'RadarLateralMatch'),
+  ('_on_far_blend', '_far_blend_toggle', 'RadarFarTrackSpeedBlend'),
   ('_on_gentle_pickup', '_gentle_pickup_toggle', 'GentleHighwayPickup'),
   ('_on_gap_only', '_gap_only_toggle', 'PersonalityGapOnly'),
 ]

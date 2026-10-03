@@ -70,6 +70,21 @@ FAINT_LEAD_MAX_D_REL = 120.  # m
 # Bosch C, matches within 60 m thin out to a minimum 2.5-3.5 m from the camera lead and rise again at the next lane.
 MATCH_LATERAL_M = 2.5
 
+# RadarFarTrackSpeedBlend: a track first reported far ahead can read its speed wrong for its first second or two, and
+# the camera's speed for the same car errs the other way. On 35 far new leads in the Bosch C archive, over the 1.5 s
+# after the track appeared, the radar's lead speed erred by a median -1.27 m/s (mean absolute 2.24, mostly overstating
+# how fast the car closes), the camera's by +1.30 (1.87) and their average by -0.01 (1.35) (bosch-c-research
+# docs/stock-acc-far-leads.md). With the setting on, a track first seen FAR_TRACK_MIN_D_REL or more ahead that is the
+# camera's lead goes to the planner with the average of the two speeds for FAR_TRACK_BLEND_S, fading to the radar's
+# alone by FAR_TRACK_FADE_S. Its acceleration fades in over the same time, except that a camera lead braking harder
+# than FAR_TRACK_BRAKING_ACCEL passes through. Where the radar shows slow or stopped traffic, a speed under
+# FAR_TRACK_SLOW_FRAC of the ego's or closing faster than FAR_TRACK_MAX_CLOSING, the radar's speed is used from the start.
+FAR_TRACK_MIN_D_REL = 50.  # m
+FAR_TRACK_BLEND_S, FAR_TRACK_FADE_S = 1.5, 2.0
+FAR_TRACK_CAMERA_WEIGHT = 0.5
+FAR_TRACK_BRAKING_ACCEL = -0.5  # m/s^2
+FAR_TRACK_SLOW_FRAC, FAR_TRACK_MAX_CLOSING = 0.5, 10.  # fraction of v_ego, m/s
+
 RADAR_TO_CAMERA = 1.52  # RADAR is ~ 1.5m ahead from center of mesh frame
 
 
@@ -136,6 +151,7 @@ class Track:
     self.identifier = identifier
     self.cnt = 0
     self.hold_cnt = hold_cnt  # updates that publish zero acceleration before the filter starts (NEW_TRACK_HOLD_S)
+    self.first_d_rel: float | None = None  # range at the first update (RadarFarTrackSpeedBlend)
     self.aLeadTau = FirstOrderFilter(_LEAD_ACCEL_TAU, 0.45, DT_MDL)
     self.K_A = kalman_params.A
     self.K_C = kalman_params.C
@@ -151,6 +167,8 @@ class Track:
 
   def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float, v_rel_std: float | None = None):
     # relative values, copy
+    if self.first_d_rel is None:
+      self.first_d_rel = d_rel
     self.dRel = d_rel   # LONG_DIST
     self.yRel = y_rel   # -LAT_DIST
     self.vRel = v_rel   # REL_SPEED
@@ -302,9 +320,30 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
   }
 
 
+def blend_far_track_speed(track: Track, lead_dict: dict[str, Any], lead_msg: capnp._DynamicStructReader, v_ego: float,
+                          model_v_ego: float) -> dict[str, Any]:
+  """RadarFarTrackSpeedBlend: lead_dict with the camera lead's speed blended in while its track is new and was first seen
+  far ahead."""
+  age = track.cnt * DT_MDL
+  if track.first_d_rel is None or track.first_d_rel < FAR_TRACK_MIN_D_REL or age >= FAR_TRACK_FADE_S:
+    return lead_dict
+  v_radar = lead_dict['vLead']
+  if v_radar < FAR_TRACK_SLOW_FRAC * v_ego or v_ego - v_radar > FAR_TRACK_MAX_CLOSING:
+    return lead_dict
+  w = FAR_TRACK_CAMERA_WEIGHT * min(1., (FAR_TRACK_FADE_S - age) / (FAR_TRACK_FADE_S - FAR_TRACK_BLEND_S))
+  v_camera = v_ego + lead_msg.v[0] - model_v_ego  # as get_RadarState_from_vision
+  dv = w * (v_camera - v_radar)
+  a_lead = (1. - w / FAR_TRACK_CAMERA_WEIGHT) * lead_dict['aLeadK']
+  if lead_msg.a[0] < FAR_TRACK_BRAKING_ACCEL:
+    a_lead = min(a_lead, float(lead_msg.a[0]))
+  lead_dict.update(vRel=float(lead_dict['vRel'] + dv), vLead=float(v_radar + dv), vLeadK=float(lead_dict['vLeadK'] + dv),
+                   aLeadK=float(a_lead))
+  return lead_dict
+
+
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
-             low_speed_override: bool = True, max_lateral: float | None = None) -> dict[str, Any]:
+             low_speed_override: bool = True, max_lateral: float | None = None, far_blend: bool = False) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
   if len(tracks) > 0 and ready and lead_prob > .5:
     track = match_vision_to_track(v_ego, lead_msg, tracks, max_lateral=max_lateral)
@@ -314,6 +353,8 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
   lead_dict = {'present': False}
   if track is not None:
     lead_dict = track.get_RadarState(lead_prob)
+    if far_blend:  # RadarFarTrackSpeedBlend
+      lead_dict = blend_far_track_speed(track, lead_dict, lead_msg, v_ego, model_v_ego)
     lead_dict = get_custom_yrel(CP, CP_SP, lead_dict, lead_msg)
   elif (track is None) and ready and (lead_prob > .5):
     lead_dict = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
@@ -364,17 +405,19 @@ class RadarD:
     self.uncertainty_filter = False
     self.faint_lead = False
     self.match_lateral: float | None = None  # RadarLateralMatch
+    self.far_blend = False  # RadarFarTrackSpeedBlend
     self.faint_lead_track: int | None = None  # the track held as a faint lead last tick
     self.faint_lead_paths_stale = False  # runs on the path stop while the setting is off
 
   def read_params(self) -> None:
     # about once a second. The new-track hold and the uncertainty filter apply to tracks created after a change; the faint
-    # lead and the lateral match check apply at once
+    # lead, the lateral match check and the far-track speed blend apply at once
     if self.frame % int(1. / DT_MDL) == 0:
       self.new_track_hold_cnt = round(NEW_TRACK_HOLD_S / DT_MDL) if self.params.get_bool("RadarNewTrackHold") else 0
       self.uncertainty_filter = self.params.get_bool("RadarUncertaintyFilter")
       self.faint_lead = self.params.get_bool("RadarConfirmedFaintLead")
       self.match_lateral = MATCH_LATERAL_M if self.params.get_bool("RadarLateralMatch") else None
+      self.far_blend = self.params.get_bool("RadarFarTrackSpeedBlend")
 
   def update(self, sm: messaging.SubMaster, rr: car.RadarData, rr_sp: capnp._DynamicStructReader | None = None):
     self.read_params()
@@ -428,7 +471,8 @@ class RadarD:
           self.lead_prob_filters[i].update(lead_prob)
 
       lead_one = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                          self.CP, self.CP_SP, low_speed_override=True, max_lateral=self.match_lateral)
+                          self.CP, self.CP_SP, low_speed_override=True, max_lateral=self.match_lateral,
+                          far_blend=self.far_blend)
       if self.faint_lead:
         position = sm['modelV2'].position
         path_x, path_y = np.asarray(position.x), np.asarray(position.y)
@@ -443,7 +487,8 @@ class RadarD:
         self.faint_lead_paths_stale = True
       self.radar_state.leadOne = lead_one
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
-                                          self.CP, self.CP_SP, low_speed_override=False, max_lateral=self.match_lateral)
+                                          self.CP, self.CP_SP, low_speed_override=False, max_lateral=self.match_lateral,
+                                          far_blend=self.far_blend)
 
   def get_faint_lead(self, lead_dict: dict[str, Any], lead_msg: capnp._DynamicStructReader) -> dict[str, Any]:
     """RadarConfirmedFaintLead: the camera lead's radar match when the camera isn't confident of it but the radar

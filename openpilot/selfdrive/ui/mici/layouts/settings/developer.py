@@ -113,6 +113,10 @@ class DeveloperLayoutMici(NavScroller):
                                            initial_state=ui_state.params.get_bool("RadarLateralMatch"),
                                            toggle_callback=self._on_lateral_match, font_size=40)
     self._lateral_match_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._far_blend_toggle = BigToggle("far radar track speed blend", "experimental, applies immediately",
+                                       initial_state=ui_state.params.get_bool("RadarFarTrackSpeedBlend"),
+                                       toggle_callback=self._on_far_blend, font_size=40)
+    self._far_blend_toggle.set_enabled(lambda: not ui_state.engaged)
     self._gentle_pickup_toggle = BigToggle("gentle highway pickup", "experimental, applies immediately",
                                            initial_state=ui_state.params.get_bool("GentleHighwayPickup"),
                                            toggle_callback=self._on_gentle_pickup, font_size=40)
@@ -150,6 +154,7 @@ class DeveloperLayoutMici(NavScroller):
       self._uncertainty_filter_toggle,
       self._faint_lead_toggle,
       self._lateral_match_toggle,
+      self._far_blend_toggle,
       self._gentle_pickup_toggle,
       self._gap_only_toggle,
       self._debug_mode_toggle,
@@ -174,6 +179,7 @@ class DeveloperLayoutMici(NavScroller):
       ("RadarUncertaintyFilter", self._uncertainty_filter_toggle),
       ("RadarConfirmedFaintLead", self._faint_lead_toggle),
       ("RadarLateralMatch", self._lateral_match_toggle),
+      ("RadarFarTrackSpeedBlend", self._far_blend_toggle),
       ("GentleHighwayPickup", self._gentle_pickup_toggle),
       ("PersonalityGapOnly", self._gap_only_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
@@ -230,6 +236,8 @@ class DeveloperLayoutMici(NavScroller):
                                         (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarConfirmedFaintLead")))
     self._lateral_match_toggle.set_visible(not ui_state.is_release and
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarLateralMatch")))
+    self._far_blend_toggle.set_visible(not ui_state.is_release and
+                                       (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarFarTrackSpeedBlend")))
     self._gentle_pickup_toggle.set_visible(not ui_state.is_release and
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("GentleHighwayPickup")))
     self._gap_only_toggle.set_visible(not ui_state.is_release and
@@ -367,6 +375,14 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("RadarLateralMatch", state, block=True)
     self._lateral_match_toggle.set_checked(state)
+
+  def _on_far_blend(self, state: bool):
+    # radard reads this about once a second. It changes the lead's speed mid-approach, so only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._far_blend_toggle.set_checked(ui_state.params.get_bool("RadarFarTrackSpeedBlend"))
+      return
+    ui_state.params.put_bool("RadarFarTrackSpeedBlend", state, block=True)
+    self._far_blend_toggle.set_checked(state)
 
   def _on_gentle_pickup(self, state: bool):
     # plannerd reads this about once a second. Like the other planner settings, it changes only while not engaged.

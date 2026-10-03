@@ -46,6 +46,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RadarUncertaintyFilter", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"RadarConfirmedFaintLead", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"RadarLateralMatch", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
+    {"RadarFarTrackSpeedBlend", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"GentleHighwayPickup", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"PersonalityGapOnly", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"ExperimentalMode", {PERSISTENT | BACKUP, BOOL}},
