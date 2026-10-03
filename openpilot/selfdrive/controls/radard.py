@@ -61,6 +61,15 @@ FAINT_LEAD_MAX_RANGE_RMS_M, FAINT_LEAD_RATE_TOL, FAINT_LEAD_RATE_TOL_FRAC = 1.0,
 FAINT_LEAD_MAX_ACCEL = 10.  # m/s^2
 FAINT_LEAD_MAX_D_REL = 120.  # m
 
+# RadarLateralMatch: radard matches the camera lead to its most probable track and only then checks that track's range
+# and speed. The probability is scaled by the model lead's stds, and recent models report xStd and vStd at their cap on
+# most confident ticks, so the most probable track is the one laterally closest to the camera lead, at any range: a car
+# in the next lane at a range that passes, or a far in-path truck that fails the range check while the real lead is
+# close. With the setting on, radard takes the most probable of the tracks that pass the range and speed checks and are
+# within MATCH_LATERAL_M of the camera lead's lateral position, and uses the camera-only lead if there are none. On
+# Bosch C, matches within 60 m thin out to a minimum 2.5-3.5 m from the camera lead and rise again at the next lane.
+MATCH_LATERAL_M = 2.5
+
 RADAR_TO_CAMERA = 1.52  # RADAR is ~ 1.5m ahead from center of mesh frame
 
 
@@ -245,7 +254,8 @@ def laplacian_pdf(x: float, mu: float, b: float):
   return math.exp(-abs(x-mu)/b)
 
 
-def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track]):
+def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track],
+                          max_lateral: float | None = None):
   offset_vision_dist = lead.x[0] - RADAR_TO_CAMERA
 
   def prob(c):
@@ -256,13 +266,20 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks
     # This isn't exactly right, but it's a good heuristic
     return prob_d * prob_y * prob_v
 
+  def sane(c):
+    # stationary radar points can be false positives
+    dist_sane = abs(c.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
+    vel_sane = (abs(c.vRel + v_ego - lead.v[0]) < 10) or (v_ego + c.vRel > 3)
+    return dist_sane and vel_sane
+
+  if max_lateral is not None:  # RadarLateralMatch
+    candidates = [c for c in tracks.values() if sane(c) and abs(c.yRel + lead.y[0]) <= max_lateral]
+    return max(candidates, key=prob) if candidates else None
+
   track = max(tracks.values(), key=prob)
 
   # if no 'sane' match is found return -1
-  # stationary radar points can be false positives
-  dist_sane = abs(track.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
-  vel_sane = (abs(track.vRel + v_ego - lead.v[0]) < 10) or (v_ego + track.vRel > 3)
-  if dist_sane and vel_sane:
+  if sane(track):
     return track
   else:
     return None
@@ -287,10 +304,10 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
 
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
-             low_speed_override: bool = True) -> dict[str, Any]:
+             low_speed_override: bool = True, max_lateral: float | None = None) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
   if len(tracks) > 0 and ready and lead_prob > .5:
-    track = match_vision_to_track(v_ego, lead_msg, tracks)
+    track = match_vision_to_track(v_ego, lead_msg, tracks, max_lateral=max_lateral)
   else:
     track = None
 
@@ -346,16 +363,18 @@ class RadarD:
     self.new_track_hold_cnt = 0
     self.uncertainty_filter = False
     self.faint_lead = False
+    self.match_lateral: float | None = None  # RadarLateralMatch
     self.faint_lead_track: int | None = None  # the track held as a faint lead last tick
     self.faint_lead_paths_stale = False  # runs on the path stop while the setting is off
 
   def read_params(self) -> None:
     # about once a second. The new-track hold and the uncertainty filter apply to tracks created after a change; the faint
-    # lead applies at once
+    # lead and the lateral match check apply at once
     if self.frame % int(1. / DT_MDL) == 0:
       self.new_track_hold_cnt = round(NEW_TRACK_HOLD_S / DT_MDL) if self.params.get_bool("RadarNewTrackHold") else 0
       self.uncertainty_filter = self.params.get_bool("RadarUncertaintyFilter")
       self.faint_lead = self.params.get_bool("RadarConfirmedFaintLead")
+      self.match_lateral = MATCH_LATERAL_M if self.params.get_bool("RadarLateralMatch") else None
 
   def update(self, sm: messaging.SubMaster, rr: car.RadarData, rr_sp: capnp._DynamicStructReader | None = None):
     self.read_params()
@@ -409,7 +428,7 @@ class RadarD:
           self.lead_prob_filters[i].update(lead_prob)
 
       lead_one = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                          self.CP, self.CP_SP, low_speed_override=True)
+                          self.CP, self.CP_SP, low_speed_override=True, max_lateral=self.match_lateral)
       if self.faint_lead:
         position = sm['modelV2'].position
         path_x, path_y = np.asarray(position.x), np.asarray(position.y)
@@ -424,7 +443,7 @@ class RadarD:
         self.faint_lead_paths_stale = True
       self.radar_state.leadOne = lead_one
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
-                                          self.CP, self.CP_SP, low_speed_override=False)
+                                          self.CP, self.CP_SP, low_speed_override=False, max_lateral=self.match_lateral)
 
   def get_faint_lead(self, lead_dict: dict[str, Any], lead_msg: capnp._DynamicStructReader) -> dict[str, Any]:
     """RadarConfirmedFaintLead: the camera lead's radar match when the camera isn't confident of it but the radar
@@ -434,7 +453,7 @@ class RadarD:
     if lead_dict['present'] or not self.ready or not self.tracks or self.v_ego < V_EGO_STATIONARY or \
        not FAINT_LEAD_HOLD_PROB < lead_prob <= .5:
       return lead_dict
-    track = match_vision_to_track(self.v_ego, lead_msg, self.tracks)
+    track = match_vision_to_track(self.v_ego, lead_msg, self.tracks, max_lateral=self.match_lateral)
     if track is None or not (lead_prob > FAINT_LEAD_PROB or track.identifier == held) or \
        not track.confirms_faint_lead(held=track.identifier == held):
       return lead_dict
