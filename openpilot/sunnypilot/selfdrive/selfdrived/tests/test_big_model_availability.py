@@ -151,11 +151,11 @@ class TestBigModelAvailability(OpenpilotTestCase):
     offer = EVENTS_SP[EventName.bigModelAvailable][ET.PERMANENT]
     chime = EVENTS_SP[EventName.bigModelReady][ET.PERMANENT]
     self.sm['modelDataV2SP'].acceleratorState = 'running'
-    self.assertEqual(chime(None, None, self.sm, False, 0, None).alert_text_1, 'Big Model Active')
+    self.assertEqual(chime(None, None, self.sm, False, 0, None).alert_text_1, 'Big Model Active')  # ty: ignore[call-non-callable]
     self.assertNotEqual(offer.alert_text_1, 'Big Model Active')
     # a chestnut's is still "Big Model Ready"
     self.sm['modelDataV2SP'].acceleratorState = 'none'
-    self.assertEqual(chime(None, None, self.sm, False, 0, None).alert_text_1, 'Big Model Ready')
+    self.assertEqual(chime(None, None, self.sm, False, 0, None).alert_text_1, 'Big Model Ready')  # ty: ignore[call-non-callable]
 
   def test_notification_has_no_control_effect(self):
     alerts = EVENTS_SP[EventName.bigModelAvailable]

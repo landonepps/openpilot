@@ -53,10 +53,11 @@ class AcceleratorEventsTest(OpenpilotTestCase):
 
 class TestHandBack(AcceleratorEventsTest):
   def test_event_ordinals(self):
-    # logs store the ordinal, and 28-31 shipped before these existed
-    self.assertEqual(int(EventNameSP.stockEcuReady), 31)
-    self.assertEqual(int(EventNameSP.bigModelAvailable), 32)
-    self.assertEqual(int(EventNameSP.bigModelLinkLost), 33)
+    # logs store the ordinal. These follow bigModelReady, sunnypilot's last event;
+    # zoompilot numbers them 32 and 33, after its own Mazda events
+    self.assertEqual(int(EventNameSP.bigModelReady), 25)
+    self.assertEqual(int(EventNameSP.bigModelAvailable), 26)
+    self.assertEqual(int(EventNameSP.bigModelLinkLost), 27)
 
   def test_a_fall_while_engaged_warns_for_five_seconds(self):
     self.drive_big(enabled=True)

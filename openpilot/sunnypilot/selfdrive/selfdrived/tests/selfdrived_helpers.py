@@ -45,7 +45,7 @@ def make_selfdrived(chestnut_present: bool = False, enabled: bool = False, mads_
   sd.big_model_loading = sd.big_model_active = sd.big_model_failed = sd.big_model_running = False
   sd.big_model_ready_t = 0.
   sd.enabled = enabled
-  sd.mads = SimpleNamespace(enabled=mads_enabled)
+  sd.mads = SimpleNamespace(enabled=mads_enabled)  # ty: ignore[invalid-assignment]  # test double
   sd.initialized = False
   sd.startup_event = None
   return sd

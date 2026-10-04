@@ -68,7 +68,7 @@ def _index(body: list[ast.stmt], pred, what: str) -> int:
   raise AssertionError(f"main() no longer has {what}; this test is describing a file that moved on")
 
 
-def _tests_name(stmt: ast.stmt, name: str) -> bool:
+def _tests_name(stmt: ast.AST, name: str) -> bool:
   return isinstance(stmt, ast.If) and isinstance(stmt.test, ast.Name) and stmt.test.id == name
 
 
@@ -187,7 +187,7 @@ class FakeMessaging:
   def __init__(self):
     self.polled = 0
 
-  # Capitalised because messaging's is.
+  # Capitalized because messaging's is.
   def Poller(self):
     return self
 
@@ -262,7 +262,7 @@ class ModeldSeam:
       wrapped = 'def _block():\n' + textwrap.indent(block, '  ') + '\n  return locals()\n'
       # exec of modeld's own source is the point of this file.
       exec(compile(wrapped, str(MODELD), 'exec'), scope)
-      scope.update(scope.pop('_block')())
+      scope.update(scope.pop('_block')())  # ty: ignore[call-non-callable]  # the function the exec above defined
     scope['environ'] = env
     return scope
 
@@ -329,7 +329,7 @@ class NativeEquivalence(OpenpilotTestCase):
     self.assertIsNone(scope['chestnut_state'])
 
   def test_the_joined_model_runs_whatever_its_truth(self):
-    # a model whose __len__ is 0 is falsy, and `attach(...) or model` ran the small one instead
+    # a model whose __len__ is 0 is false in a boolean test, and `attach(...) or model` ran the small one instead
     class Empty(SimpleNamespace):
       def __len__(self):
         return 0
@@ -470,7 +470,7 @@ class Footprint:
         model.handovers += 1
     patterns = [(f'every {n}', lambda i, n=n: 1 if i % n == 0 else 0) for n in (1, 2, 5, 20, 60, 136, 200)]
     # a forgiven drop, then two at once
-    patterns.append(('a double on a single', lambda i: {100: 1, 101: 2}.get(i, 0)))
+    patterns.append(('a double on a single', lambda i: {100: 1, 101: 2}.get(i, 0)))  # ty: ignore[invalid-argument-type]
     for name, skipped in patterns:
       with self.subTest(name):
         self.assertLess(max(self._loop(2000, skipped, run)) * 100, _lagging_line())
@@ -598,7 +598,7 @@ class HardwaredPowersOffWithoutStopping(OpenpilotTestCase):
     self.assertLess(body.index(check), publish, "deviceState is no longer published after the shutdown check")
 
     def code(*nodes):
-      return compile('\n'.join(textwrap.dedent(ast.get_source_segment(src, n, padded=True)) for n in nodes),
+      return compile('\n'.join(textwrap.dedent(ast.get_source_segment(src, n, padded=True)) for n in nodes),  # ty: ignore[invalid-argument-type]
                      str(HARDWARED), 'exec')
     self.init = code(init)
     self.loop = code(powering_off, body[should], body[should + 1], start, check)

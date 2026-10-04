@@ -50,7 +50,7 @@ class UIStateSP:
     # jetlink's snapshot (jetlink.openpilot.Status) from the params pass; None
     # with a chestnut fitted or no jetlink on this device
     self.jetlink = None
-    # the Accelerator Link holds the USB port, so ADB is off and its toggle greyed out
+    # the Accelerator Link holds the USB port, so ADB is off and its toggle grayed out
     self.adb_blocked: bool = False
     self._accelerator_state_name: str = 'none'
     self.blindspot: bool = False
@@ -186,7 +186,7 @@ class UIStateSP:
     self.jetlink = None if self.sm['deviceState'].chestnutPresent else jetlink_adapter.status()
     self._enforce_usb_port()
     # the Jetson configures the gadget ~25 s after a cold boot, after the one-shot
-    # usb_unknown decision; recognising it late still clears "unknown"
+    # usb_unknown decision; recognizing it late still clears "unknown"
     if (view := self.jetlink_view) is not None and view.present and self.usb_unknown:
       self.usb_unknown = False
     self.blindspot = self.params.get_bool("BlindSpot")

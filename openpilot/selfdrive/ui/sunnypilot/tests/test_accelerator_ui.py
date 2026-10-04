@@ -189,7 +189,7 @@ class TestUIStateJetlinkView(UITest):
         ui_state._update_chestnut_state()
       assert ui_state.chestnut_state == ChestnutState.DISCONNECTED
 
-      ui_state.sm = FakeSM(board=False, big=True, alive=True, recv=1, state='running')
+      ui_state.sm = FakeSM(board=False, big=True, alive=True, recv=1, state='running')  # ty: ignore[invalid-assignment]  # test double
       UIStateSP.update(ui_state)
       with jetlink(present=True, ready=True, enabled=True):
         ui_state._update_chestnut_state()
@@ -421,7 +421,7 @@ def ui_state_module():
 
 class TestTheUsbPort(UITest):
   """ADB and the Accelerator Link share the comma's USB port: the link on
-  turns ADB off and greys its toggle out."""
+  turns ADB off and grays its toggle out."""
 
   def setUp(self):
     super().setUp()
