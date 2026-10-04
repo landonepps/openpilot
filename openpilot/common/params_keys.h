@@ -49,6 +49,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RadarFarTrackSpeedBlend", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"GentleHighwayPickup", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
     {"PersonalityGapOnly", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
+    {"MapCurveGentleBraking", {PERSISTENT | DEVELOPMENT_ONLY, BOOL, "0"}},
+    {"MapCurveLatAccel", {PERSISTENT | DEVELOPMENT_ONLY, FLOAT, "2.0"}},
     {"ExperimentalMode", {PERSISTENT | BACKUP, BOOL}},
     {"ExperimentalModeConfirmed", {PERSISTENT | BACKUP, BOOL}},
     {"FirmwareQueryDone", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},

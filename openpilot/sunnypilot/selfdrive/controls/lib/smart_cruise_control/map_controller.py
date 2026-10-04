@@ -26,6 +26,30 @@ TARGET_OFFSET = 1.0  # seconds - This controls how soon before the curve you rea
                      # done to keep the distance calculations consistent but results in the offset actually being less
                      # time than specified depending on how much of a speed differential there is between v_ego and the
                      # target velocity.
+MAPD_TARGET_LAT_ACCEL = 2.0  # m/s^2, the lateral acceleration mapd computes MapTargetVelocities for
+MAP_CURVE_LAT_ACCEL_RANGE = (1.0, 3.0)  # m/s^2, bounds for MapCurveLatAccel
+
+# MapCurveGentleBraking: instead of a curve point's own velocity once it is within TARGET_ACCEL braking distance, the
+# target is the highest speed from which every point ahead is reached at its velocity braking at GENTLE_DECEL. The
+# planner brakes by the speed gap (get_cruise_accel, gain 1/s), so the car trails a falling target by about CRUISE_LAG
+# of travel, and each point's braking starts that much earlier. Between points the same target limits the pickup to
+# what the next point allows. On 13 logged drives through one freeway connector (closed-loop replay), this braked at
+# -0.5 m/s^2 from when mapd first saw the curve, against -1.2 m/s^2 later, for the same speed through the curve.
+GENTLE_DECEL = 0.5  # m/s^2
+CRUISE_LAG = 1.0  # s
+
+
+def gentle_braking_target(points, distances, v_ego: float) -> float:
+  """MapCurveGentleBraking's target: the highest speed from which each point ahead is reached at its velocity braking at
+  GENTLE_DECEL, keeping the TARGET_OFFSET margin. 0 when no point has a velocity."""
+  v_target = math.inf
+  for target_velocity, d in zip(points, distances, strict=True):
+    tv = target_velocity["velocity"]
+    if tv <= 0:
+      continue
+    braking_distance = max(d - tv * TARGET_OFFSET - v_ego * CRUISE_LAG, 0.)
+    v_target = min(v_target, math.sqrt(tv ** 2 + 2 * GENTLE_DECEL * braking_distance))
+  return 0. if math.isinf(v_target) else v_target
 
 
 def velocities_from_param(param: str, params: Params):
@@ -74,6 +98,8 @@ class SmartCruiseControlMap:
     self.params = Params()
     self.mem_params = Params("/dev/shm/params") if platform.system() != "Darwin" else self.params
     self.enabled = self.params.get_bool("SmartCruiseControlMap")
+    self.gentle_braking = self.params.get_bool("MapCurveGentleBraking")
+    self.lat_accel = self.read_lat_accel()
     self.long_enabled = False
     self.long_override = False
     self.is_enabled = False
@@ -96,9 +122,15 @@ class SmartCruiseControlMap:
   def get_a_target_from_control(self) -> float:
     return self.a_ego
 
+  def read_lat_accel(self) -> float:
+    lo, hi = MAP_CURVE_LAT_ACCEL_RANGE
+    return min(max(float(self.params.get("MapCurveLatAccel", return_default=True)), lo), hi)
+
   def update_params(self):
     if self.frame % int(PARAMS_UPDATE_PERIOD / DT_MDL) == 0:
       self.enabled = self.params.get_bool("SmartCruiseControlMap")
+      self.gentle_braking = self.params.get_bool("MapCurveGentleBraking")
+      self.lat_accel = self.read_lat_accel()
 
   def update_calculations(self) -> None:
     self.last_position = coordinate_from_param("LastGPSPosition", self.mem_params) or Coordinate(0.0, 0.0)
@@ -106,6 +138,10 @@ class SmartCruiseControlMap:
     lon = self.last_position.longitude
 
     self.target_velocities = velocities_from_param("MapTargetVelocities", self.mem_params) or []
+    # MapCurveLatAccel: mapd's velocities are for MAPD_TARGET_LAT_ACCEL; v scales with the square root
+    scale = math.sqrt(self.lat_accel / MAPD_TARGET_LAT_ACCEL)
+    if scale != 1.:
+      self.target_velocities = [dict(tv, velocity=tv["velocity"] * scale) for tv in self.target_velocities]
 
     if self.last_position is None or self.target_velocities is None:
       return
@@ -128,6 +164,10 @@ class SmartCruiseControlMap:
     # only look at values from our current position forward
     forward_points = self.target_velocities[min_idx:]
     forward_distances = distances[min_idx:]
+
+    if self.gentle_braking:
+      self.v_target = gentle_braking_target(forward_points, forward_distances, self.v_ego)
+      return
 
     # find velocities that we are within the distance we need to adjust for
     valid_velocities = []

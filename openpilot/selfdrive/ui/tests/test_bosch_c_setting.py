@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -86,6 +87,7 @@ LIVE_SETTINGS = [
   ('_on_far_blend', '_far_blend_toggle', 'RadarFarTrackSpeedBlend'),
   ('_on_gentle_pickup', '_gentle_pickup_toggle', 'GentleHighwayPickup'),
   ('_on_gap_only', '_gap_only_toggle', 'PersonalityGapOnly'),
+  ('_on_map_gentle_braking', '_map_gentle_toggle', 'MapCurveGentleBraking'),
 ]
 
 
@@ -127,3 +129,43 @@ def test_live_setting_refuses_while_engaged_or_on_release(method, toggle, key, c
   setattr(state, 'engaged' if change == 'engaged' else 'is_release', True)
   callback(True)
   assert not writes and checked == [False] and not restarts
+
+
+def map_lat_accel_setting():
+  """_on_map_lat_accel and the option tables it uses, outside the UI."""
+  path = Path(__file__).parents[1] / 'mici/layouts/settings/developer.py'
+  tree = ast.parse(path.read_text())
+  common = ast.parse((Path(__file__).parents[1] / 'layouts/settings/common.py').read_text())
+  tables = [n for n in tree.body if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and
+            n.targets[0].id.startswith('MAP_CURVE_LAT_ACCEL')]
+  closest = next(n for n in common.body if isinstance(n, ast.FunctionDef) and n.name == 'closest_value_index')
+  cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'DeveloperLayoutMici')
+  methods: list[ast.stmt] = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in ('_on_map_lat_accel', '_show_map_lat_accel')]
+  values = {'MapCurveLatAccel': 2.0}
+  writes, shown = [], []
+
+  def put(key, value, **_):
+    writes.append((key, value))
+    values[key] = value
+
+  state = SimpleNamespace(engaged=False, is_release=False, params=SimpleNamespace(get=lambda key, return_default=False: values[key], put=put))
+  namespace: dict[str, Any] = {'ui_state': state}
+  wrapper = ast.ClassDef(name='Setting', bases=[], keywords=[], body=methods, decorator_list=[], type_params=[])
+  exec(compile(ast.fix_missing_locations(ast.Module(body=[*tables, closest, wrapper], type_ignores=[])), str(path), 'exec'), namespace)
+  obj = namespace['Setting']()
+  obj._map_lat_accel_toggle = SimpleNamespace(set_value=shown.append)
+  return obj, state, writes, shown
+
+
+def test_map_lat_accel_writes_the_chosen_value():
+  obj, state, writes, shown = map_lat_accel_setting()
+  obj._on_map_lat_accel('2.5')
+  assert writes == [('MapCurveLatAccel', 2.5)] and not shown
+
+
+@pytest.mark.parametrize('change', ['engaged', 'release'])
+def test_map_lat_accel_refuses_while_engaged_or_on_release(change):
+  obj, state, writes, shown = map_lat_accel_setting()
+  setattr(state, 'engaged' if change == 'engaged' else 'is_release', True)
+  obj._on_map_lat_accel('2.5')
+  assert not writes and shown == ['2.0 (mapd)']

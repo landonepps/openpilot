@@ -11,6 +11,10 @@ from openpilot.selfdrive.ui.layouts.settings.common import (LANE_CENTER_OFFSET_L
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets.ssh_key import SshKeyFetcher
 
+# MapCurveLatAccel: the lateral acceleration Map's curve speeds aim for. 2.0 is mapd's own.
+MAP_CURVE_LAT_ACCEL_VALUES = (2.0, 2.3, 2.5, 2.7)
+MAP_CURVE_LAT_ACCEL_LABELS = ("2.0 (mapd)", "2.3", "2.5", "2.7")
+
 
 class AlphaLongConfirmPage(NavScroller):
   def __init__(self, on_confirm: Callable[[], None]):
@@ -125,6 +129,13 @@ class DeveloperLayoutMici(NavScroller):
                                       initial_state=ui_state.params.get_bool("PersonalityGapOnly"),
                                       toggle_callback=self._on_gap_only, font_size=40)
     self._gap_only_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._map_gentle_toggle = BigToggle("gentle map curve braking", "experimental, applies immediately",
+                                        initial_state=ui_state.params.get_bool("MapCurveGentleBraking"),
+                                        toggle_callback=self._on_map_gentle_braking, font_size=40)
+    self._map_gentle_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._map_lat_accel_toggle = BigMultiToggle("map curve lateral accel", list(MAP_CURVE_LAT_ACCEL_LABELS),
+                                                select_callback=self._on_map_lat_accel, font_size=40)
+    self._map_lat_accel_toggle.set_enabled(lambda: not ui_state.engaged)
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
@@ -157,6 +168,8 @@ class DeveloperLayoutMici(NavScroller):
       self._far_blend_toggle,
       self._gentle_pickup_toggle,
       self._gap_only_toggle,
+      self._map_gentle_toggle,
+      self._map_lat_accel_toggle,
       self._debug_mode_toggle,
       self._lane_centering_toggle,
       self._lane_centering_pause_toggle,
@@ -182,6 +195,7 @@ class DeveloperLayoutMici(NavScroller):
       ("RadarFarTrackSpeedBlend", self._far_blend_toggle),
       ("GentleHighwayPickup", self._gentle_pickup_toggle),
       ("PersonalityGapOnly", self._gap_only_toggle),
+      ("MapCurveGentleBraking", self._map_gentle_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("LaneCentering", self._lane_centering_toggle),
     )
@@ -242,6 +256,9 @@ class DeveloperLayoutMici(NavScroller):
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("GentleHighwayPickup")))
     self._gap_only_toggle.set_visible(not ui_state.is_release and
                                       (ui_state.has_longitudinal_control or ui_state.params.get_bool("PersonalityGapOnly")))
+    # Smart Cruise Control Map also drives ICBM's set speed, so these show without openpilot longitudinal too
+    self._map_gentle_toggle.set_visible(not ui_state.is_release)
+    self._map_lat_accel_toggle.set_visible(not ui_state.is_release)
 
     # CP gating
     if ui_state.CP is not None:
@@ -272,6 +289,7 @@ class DeveloperLayoutMici(NavScroller):
       LANE_CENTERING_E2E_AUTHORITY_LABELS[
         closest_value_index(LANE_CENTERING_E2E_AUTHORITY_VALUES, ui_state.params.get("LaneCenteringE2EAuthority", return_default=True))])
     self._update_lane_centering_settings_enabled(ui_state.params.get_bool("LaneCentering"))
+    self._show_map_lat_accel()
 
   def _update_lane_centering_settings_enabled(self, enabled: bool):
     self._lane_centering_pause_toggle.set_enabled(enabled)
@@ -400,6 +418,25 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("PersonalityGapOnly", state, block=True)
     self._gap_only_toggle.set_checked(state)
+
+  def _on_map_gentle_braking(self, state: bool):
+    # plannerd reads this every few seconds. It changes how Map slows for a curve, so only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._map_gentle_toggle.set_checked(ui_state.params.get_bool("MapCurveGentleBraking"))
+      return
+    ui_state.params.put_bool("MapCurveGentleBraking", state, block=True)
+    self._map_gentle_toggle.set_checked(state)
+
+  def _show_map_lat_accel(self):
+    value = ui_state.params.get("MapCurveLatAccel", return_default=True)
+    self._map_lat_accel_toggle.set_value(MAP_CURVE_LAT_ACCEL_LABELS[closest_value_index(MAP_CURVE_LAT_ACCEL_VALUES, value)])
+
+  def _on_map_lat_accel(self, value: str):
+    # plannerd reads this every few seconds. It changes Map's curve speeds, so only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._show_map_lat_accel()
+      return
+    ui_state.params.put("MapCurveLatAccel", MAP_CURVE_LAT_ACCEL_VALUES[MAP_CURVE_LAT_ACCEL_LABELS.index(value)], block=True)
 
   def _on_bosch_c_enabled(self, state: bool):
     # The setting is read during car initialization. Never change it while
