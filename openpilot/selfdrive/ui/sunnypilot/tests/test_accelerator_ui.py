@@ -271,18 +271,18 @@ class TestTiciModelsPanel(UITest):
       assert layout.accelerator_link_item.description.endswith("A device is on the USB port.")
     with jetlink(present=True, port='host'):
       layout._refresh_accelerator_items()
-      assert layout.accelerator_link_item.description.endswith("Accelerator connected: USB.")
+      assert layout.accelerator_link_item.description.endswith("Jetlink connected: USB.")
     # a kernel without the CC pin in sysfs claims nothing rather than an empty port
     with jetlink(port=None):
       layout._refresh_accelerator_items()
-      assert layout.accelerator_link_item.description.endswith("which needs the same USB port.")
+      assert layout.accelerator_link_item.description.endswith("Turns off ADB.")
 
   def test_the_status_names_the_transport(self):
     # the setting names the host: USB for a Jetson, a Linux PC or a Mac, iOS for
     # a phone dialed in over the gadget's network interface. jetlink says which
     from openpilot.selfdrive.ui.sunnypilot.accelerator_link import link_status
     with jetlink(present=True, transport='iOS over USB (192.168.60.3)'):
-      assert link_status() == "Accelerator connected: iOS over USB (192.168.60.3)."
+      assert link_status() == "Jetlink connected: iOS over USB (192.168.60.3)."
     with jetlink(installed=False):
       assert link_status() == ""
 
@@ -316,7 +316,7 @@ class TestTiciModelsPanel(UITest):
         layout = self._layout()
         note = layout._status_note()
         assert "chestnut" not in note
-        assert "Cinque Terre will drive when the accelerator is ready." == note
+        assert "Cinque Terre will drive when Jetlink is ready." == note
         ui_state.jetlink = snapshot(present=True, ready=True, enabled=True, model='Cinque Terre')
         # no "until the next drive": the link rejoins all drive
         assert layout._status_note() == "Cinque Terre will drive."
@@ -347,6 +347,21 @@ class TestTiciModelsPanel(UITest):
         assert not link_toggle_meaningful()
     finally:
       ui_state.chestnut_present = saved
+
+  def test_mici_progress_uses_jetlinks_message(self):
+    from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import _model_info
+
+    cases = [
+      ('connect', 0.0, 'waiting for jetlink', 0, 'usb', 'waiting for jetlink'),
+      ('download', 0.45, 'downloading', 0, 'usb', 'downloading 45%'),
+      ('connect', 0.0, 'reconnecting', 2, 'usb', 'reconnecting, check cable (2 drops)'),
+      ('connect', 0.0, 'waiting for jetlink', 3, 'ios', 'waiting for jetlink, check cable or app (3 drops)'),
+    ]
+    for stage, frac, msg, drops, mode, shown in cases:
+      with self.subTest(mode=mode, msg=msg, drops=drops), \
+           mock.patch.object(ui_state_module().ui_state, 'chestnut_present', False), \
+           jetlink(present=True, mode=mode, progress={'stage': stage, 'frac': frac, 'msg': msg, 'drops': drops}):
+        assert _model_info()[2] == shown
 
   def test_panel_renders(self):
     import pyray as rl
@@ -420,7 +435,7 @@ def ui_state_module():
 
 
 class TestTheUsbPort(UITest):
-  """ADB and the Accelerator Link share the comma's USB port: the link on
+  """ADB and Jetlink share the comma's USB port: the link on
   turns ADB off and grays its toggle out."""
 
   def setUp(self):
