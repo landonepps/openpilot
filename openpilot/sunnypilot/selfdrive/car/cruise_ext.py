@@ -11,6 +11,7 @@ from opendbc.car.structs import car
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
+from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import ACTIVE_STATES as SLA_ACTIVE_STATES
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target
@@ -25,6 +26,12 @@ CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
 V_CRUISE_MIN = 8
 V_CRUISE_MAX = 145
 V_CRUISE_UNSET = 255
+
+# Honda reports the set speed for a new engagement 10-60 ms after its cruise engages, and a +/- tap up to 0.16 s after
+# the button's release. Taking over before then keeps the old one: unset on a drive's first engagement, which the
+# planner caps at V_CRUISE_MAX (90 mph), or the previous set speed after SET. ICBM presses nothing for 0.4 s after
+# an engagement or a button release, so the takeover comes before its first press.
+ENGAGE_SETTLE_FRAMES = int(0.3 / DT_CTRL)
 
 
 def update_manual_button_timers(CS: car.CarState, button_timers: dict[car.CarState.ButtonEvent.Type, int]) -> None:
@@ -48,6 +55,7 @@ class VCruiseHelperSP:
     self.params = Params()
     self.v_cruise_min = 0
     self.enabled_prev = False
+    self.settle_frames = 0
 
     self.custom_acc_enabled = self.params.get_bool("CustomAccIncrementsEnabled")
     self.short_increment = self.params.get("CustomAccShortPressIncrement", return_default=True)
@@ -99,10 +107,14 @@ class VCruiseHelperSP:
       button_pressed = any(self.enable_button_timers[k] > 0 for k in self.enable_button_timers)
 
       if enabled and not self.enabled_prev:
-        self.enabled_prev = not button_pressed
+        # keep following the car's set speed until it has reported the one for this engagement and any button press
+        self.settle_frames = 0 if button_pressed else self.settle_frames + 1
+        car_set_speed_settled = not self.CP.pcmCruise or (CS.cruiseState.speed > 0 and self.settle_frames >= ENGAGE_SETTLE_FRAMES)
+        self.enabled_prev = not button_pressed and car_set_speed_settled
         enabled = False
       elif not enabled:
         self.enabled_prev = enabled
+        self.settle_frames = 0
 
       return enabled and self.enabled_prev
 

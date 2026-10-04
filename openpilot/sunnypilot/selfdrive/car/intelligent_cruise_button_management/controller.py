@@ -10,7 +10,7 @@ from opendbc.car import structs, apply_hysteresis
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
-from openpilot.sunnypilot.selfdrive.car.cruise_ext import CRUISE_BUTTON_TIMER, update_manual_button_timers
+from openpilot.sunnypilot.selfdrive.car.cruise_ext import CRUISE_BUTTON_TIMER, V_CRUISE_UNSET, update_manual_button_timers
 
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
 State = custom.IntelligentCruiseButtonManagement.IntelligentCruiseButtonManagementState
@@ -112,7 +112,10 @@ class IntelligentCruiseButtonManagement:
     ready = CC.enabled and not CC.cruiseControl.override and not CC.cruiseControl.cancel and not CC.cruiseControl.resume
     button_pressed = any(self.cruise_button_timers[k] > 0 for k in self.cruise_button_timers)
 
-    self.is_ready = ready and not button_pressed
+    # with no set speed, the planner's target is V_CRUISE_MAX (90 mph), not anything the driver set
+    set_speed_known = CS.vCruise != V_CRUISE_UNSET
+
+    self.is_ready = ready and not button_pressed and set_speed_known
 
   def run(self, CS: car.CarState, CC: car.CarControl, LP_SP: custom.LongitudinalPlanSP, is_metric: bool) -> None:
     if self.CP_SP.pcmCruiseSpeed:
