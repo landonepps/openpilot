@@ -388,6 +388,13 @@ class TestTiciModelsPanel(UITest):
            jetlink(present=True, mode=mode, progress={'stage': stage, 'frac': frac, 'msg': msg, 'drops': drops}):
         assert _model_info()[2] == shown
 
+  def test_mici_names_the_stand_in_while_the_pick_is_not_ready(self):
+    # the last model the Jetson built drives while the pick downloads and builds
+    from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import _model_info
+    with mock.patch.object(ui_state_module().ui_state, 'chestnut_present', False), \
+         jetlink(present=True, enabled=True, model='ResAction Preview', standin='Cinque Terre V3'):
+      assert _model_info()[1:] == ('big model', 'cinque terre v3 for now')
+
   def test_panel_renders(self):
     import pyray as rl
     with jetlink(present=True, model='Cinque Terre'):

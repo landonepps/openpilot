@@ -39,7 +39,7 @@ class TestModelStartup:
     starting = True
     while self.sm.frame < frame:
       self.sm.frame += 1
-      starting = self.startup.update(self.sm)
+      starting = self.startup.update(self.sm)  # ty: ignore[invalid-argument-type]  # test double
     return starting
 
   def test_holds_until_the_first_frame(self):
