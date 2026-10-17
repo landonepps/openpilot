@@ -98,6 +98,12 @@ function launch {
   if [ ! -f $DIR/prebuilt ]; then
     ./build.py
   fi
+  # One-shot passive startup experiment, armed explicitly while parked.
+  # The helper waits at most five seconds for recorder subscriptions, then lets
+  # normal startup proceed even if capture failed. It never changes car params.
+  if [ -f /data/media/0/bosch_c_radar/arm-next-startup ]; then
+    python3 -m openpilot.tools.car_porting.bosch_c_coexistence_boot
+  fi
   ./manager.py
 
   # if broken, keep on screen error
