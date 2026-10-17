@@ -101,6 +101,26 @@ class DeveloperLayoutMici(NavScroller):
                                             initial_state=ui_state.params.get_bool("ModelLeadSustainedBraking"),
                                             toggle_callback=self._on_lead_sustained_braking, font_size=40)
     self._lead_sustained_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._new_track_hold_toggle = BigToggle("new radar track hold", "experimental, applies immediately",
+                                            initial_state=ui_state.params.get_bool("RadarNewTrackHold"),
+                                            toggle_callback=self._on_new_track_hold, font_size=40)
+    self._new_track_hold_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._uncertainty_filter_toggle = BigToggle("radar uncertainty filter", "Bosch C, experimental, new tracks only",
+                                                initial_state=ui_state.params.get_bool("RadarUncertaintyFilter"),
+                                                toggle_callback=self._on_uncertainty_filter, font_size=40)
+    self._uncertainty_filter_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._faint_lead_toggle = BigToggle("radar-confirmed faint lead", "experimental, applies immediately",
+                                        initial_state=ui_state.params.get_bool("RadarConfirmedFaintLead"),
+                                        toggle_callback=self._on_faint_lead, font_size=40)
+    self._faint_lead_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._lateral_match_toggle = BigToggle("radar lateral match check", "experimental, applies immediately",
+                                           initial_state=ui_state.params.get_bool("RadarLateralMatch"),
+                                           toggle_callback=self._on_lateral_match, font_size=40)
+    self._lateral_match_toggle.set_enabled(lambda: not ui_state.engaged)
+    self._far_blend_toggle = BigToggle("far radar track speed blend", "experimental, applies immediately",
+                                       initial_state=ui_state.params.get_bool("RadarFarTrackSpeedBlend"),
+                                       toggle_callback=self._on_far_blend, font_size=40)
+    self._far_blend_toggle.set_enabled(lambda: not ui_state.engaged)
     self._gentle_pickup_toggle = BigToggle("gentle highway pickup", "experimental, applies immediately",
                                            initial_state=ui_state.params.get_bool("GentleHighwayPickup"),
                                            toggle_callback=self._on_gentle_pickup, font_size=40)
@@ -135,6 +155,11 @@ class DeveloperLayoutMici(NavScroller):
       self._bosch_c_gate_toggle,
       self._model_lead_toggle,
       self._lead_sustained_toggle,
+      self._new_track_hold_toggle,
+      self._uncertainty_filter_toggle,
+      self._faint_lead_toggle,
+      self._lateral_match_toggle,
+      self._far_blend_toggle,
       self._gentle_pickup_toggle,
       self._gap_only_toggle,
       self._debug_mode_toggle,
@@ -156,6 +181,11 @@ class DeveloperLayoutMici(NavScroller):
       ("HondaBoschCUncertaintyGate", self._bosch_c_gate_toggle),
       ("ModelLeadTrajectory", self._model_lead_toggle),
       ("ModelLeadSustainedBraking", self._lead_sustained_toggle),
+      ("RadarNewTrackHold", self._new_track_hold_toggle),
+      ("RadarUncertaintyFilter", self._uncertainty_filter_toggle),
+      ("RadarConfirmedFaintLead", self._faint_lead_toggle),
+      ("RadarLateralMatch", self._lateral_match_toggle),
+      ("RadarFarTrackSpeedBlend", self._far_blend_toggle),
       ("GentleHighwayPickup", self._gentle_pickup_toggle),
       ("PersonalityGapOnly", self._gap_only_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
@@ -206,6 +236,18 @@ class DeveloperLayoutMici(NavScroller):
     self._lead_sustained_toggle.set_visible(not ui_state.is_release and
                                             (ui_state.params.get_bool("ModelLeadTrajectory") or
                                              ui_state.params.get_bool("ModelLeadSustainedBraking")))
+    self._new_track_hold_toggle.set_visible(not ui_state.is_release and
+                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarNewTrackHold")))
+    # only the Bosch C radar reports the per-track speed uncertainty it uses
+    self._uncertainty_filter_toggle.set_visible(not ui_state.is_release and
+                                                (ui_state.params.get_bool("HondaBoschCExperimentalRadar") or
+                                                 ui_state.params.get_bool("RadarUncertaintyFilter")))
+    self._faint_lead_toggle.set_visible(not ui_state.is_release and
+                                        (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarConfirmedFaintLead")))
+    self._lateral_match_toggle.set_visible(not ui_state.is_release and
+                                           (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarLateralMatch")))
+    self._far_blend_toggle.set_visible(not ui_state.is_release and
+                                       (ui_state.has_longitudinal_control or ui_state.params.get_bool("RadarFarTrackSpeedBlend")))
     self._gentle_pickup_toggle.set_visible(not ui_state.is_release and
                                            (ui_state.has_longitudinal_control or ui_state.params.get_bool("GentleHighwayPickup")))
     self._gap_only_toggle.set_visible(not ui_state.is_release and
@@ -317,6 +359,48 @@ class DeveloperLayoutMici(NavScroller):
       return
     ui_state.params.put_bool("ModelLeadSustainedBraking", state, block=True)
     self._lead_sustained_toggle.set_checked(state)
+
+  def _on_new_track_hold(self, state: bool):
+    # radard reads this about once a second and applies it to tracks that start after. Only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._new_track_hold_toggle.set_checked(ui_state.params.get_bool("RadarNewTrackHold"))
+      return
+    ui_state.params.put_bool("RadarNewTrackHold", state, block=True)
+    self._new_track_hold_toggle.set_checked(state)
+
+  def _on_uncertainty_filter(self, state: bool):
+    # radard reads this about once a second and applies it to tracks that start after. Only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._uncertainty_filter_toggle.set_checked(ui_state.params.get_bool("RadarUncertaintyFilter"))
+      return
+    ui_state.params.put_bool("RadarUncertaintyFilter", state, block=True)
+    self._uncertainty_filter_toggle.set_checked(state)
+
+  def _on_faint_lead(self, state: bool):
+    # radard reads this about once a second. Taking or dropping a lead mid-follow changes the plan, so only while not
+    # engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._faint_lead_toggle.set_checked(ui_state.params.get_bool("RadarConfirmedFaintLead"))
+      return
+    ui_state.params.put_bool("RadarConfirmedFaintLead", state, block=True)
+    self._faint_lead_toggle.set_checked(state)
+
+  def _on_lateral_match(self, state: bool):
+    # radard reads this about once a second. Changing which track is the lead mid-follow changes the plan, so only while
+    # not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._lateral_match_toggle.set_checked(ui_state.params.get_bool("RadarLateralMatch"))
+      return
+    ui_state.params.put_bool("RadarLateralMatch", state, block=True)
+    self._lateral_match_toggle.set_checked(state)
+
+  def _on_far_blend(self, state: bool):
+    # radard reads this about once a second. It changes the lead's speed mid-approach, so only while not engaged.
+    if ui_state.engaged or ui_state.is_release:
+      self._far_blend_toggle.set_checked(ui_state.params.get_bool("RadarFarTrackSpeedBlend"))
+      return
+    ui_state.params.put_bool("RadarFarTrackSpeedBlend", state, block=True)
+    self._far_blend_toggle.set_checked(state)
 
   def _on_gentle_pickup(self, state: bool):
     # plannerd reads this about once a second. Like the other planner settings, it changes only while not engaged.

@@ -80,6 +80,11 @@ LIVE_SETTINGS = [
   ('_on_bosch_c_gate_enabled', '_bosch_c_gate_toggle', 'HondaBoschCUncertaintyGate'),
   ('_on_model_lead_trajectory', '_model_lead_toggle', 'ModelLeadTrajectory'),
   ('_on_lead_sustained_braking', '_lead_sustained_toggle', 'ModelLeadSustainedBraking'),
+  ('_on_new_track_hold', '_new_track_hold_toggle', 'RadarNewTrackHold'),
+  ('_on_uncertainty_filter', '_uncertainty_filter_toggle', 'RadarUncertaintyFilter'),
+  ('_on_faint_lead', '_faint_lead_toggle', 'RadarConfirmedFaintLead'),
+  ('_on_lateral_match', '_lateral_match_toggle', 'RadarLateralMatch'),
+  ('_on_far_blend', '_far_blend_toggle', 'RadarFarTrackSpeedBlend'),
   ('_on_gentle_pickup', '_gentle_pickup_toggle', 'GentleHighwayPickup'),
   ('_on_gap_only', '_gap_only_toggle', 'PersonalityGapOnly'),
 ]

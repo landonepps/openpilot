@@ -25,6 +25,7 @@ from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_cap
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
 from openpilot.sunnypilot.selfdrive.car.bosch_c_live_params import update_bosch_c_live_params
+from openpilot.sunnypilot.selfdrive.car.radar_tracks_sp import radar_tracks_sp
 
 REPLAY = "REPLAY" in os.environ
 
@@ -73,7 +74,7 @@ class Car:
   def __init__(self, CI=None, RI=None) -> None:
     self.can_sock = messaging.sub_sock('can', timeout=20)
     self.sm = messaging.SubMaster(['pandaStates', 'carControl', 'onroadEvents', 'modelV2'] + ['carControlSP', 'longitudinalPlanSP'])
-    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks'] + ['carParamsSP', 'carStateSP'])
+    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks'] + ['carParamsSP', 'carStateSP', 'radarTracksSP'])
 
     self.can_rcv_cum_timeout_counter = 0
 
@@ -251,8 +252,14 @@ class Car:
     self.pm.send('carState', cs_send)
 
     if RD is not None:
+      tracks_valid = not any(RD.errors.to_dict().values())
+      # sunnypilot: per-track extras go first, so radard doesn't see a new track before its extras
+      tracks_sp_msg = radar_tracks_sp(self.RI, RD, tracks_valid)
+      if tracks_sp_msg is not None:
+        self.pm.send('radarTracksSP', tracks_sp_msg)
+
       tracks_msg = messaging.new_message('radarTracks')
-      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.valid = tracks_valid
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
 
