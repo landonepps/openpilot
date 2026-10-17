@@ -7,7 +7,7 @@ from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.swaglog import cloudlog
 # WARNING: imports outside of constants will not trigger a rebuild
-from openpilot.selfdrive.modeld.constants import index_function
+from openpilot.selfdrive.modeld.constants import index_function, ModelConstants
 from openpilot.selfdrive.controls.radard import _LEAD_ACCEL_TAU
 
 if __name__ == '__main__':  # generating code
@@ -56,6 +56,15 @@ T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 MIN_X_LEAD_FACTOR = 0.5
+LEAD_T_IDXS_MODEL = np.array(ModelConstants.LEAD_T_IDXS)
+# ModelLeadSustainedBraking: the model's lead prediction levels off within about 2 s even while the lead keeps braking
+# (route 1f2 at 456 s: 26.6 m/s predicted 2 s ahead, 22.6 m/s actual), so model_lead_trajectory under-brakes for a lead
+# that brakes for longer. While radar and model both see the lead braking harder than this, the lead is also planned to
+# keep the harder of the two decelerations, fading as radard's aLeadTau sets (the default path's extrapolation), and
+# the slower of the two speeds counts. On 157 recorded moderate lead-braking events (closed-loop replay with the
+# driver's toggles), the 5th/10th percentile of the lowest time to collision rose from 1.58/2.08 s to 2.14/3.15 s, with
+# none lower, at about the same following comfort (bosch-c-research docs/drives-1ea-1f2-braking-and-curves.md).
+SUSTAINED_BRAKING_MIN = -0.3  # m/s^2
 
 def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
   if personality==log.LongitudinalPersonality.relaxed:
@@ -83,6 +92,34 @@ def get_stopped_equivalence_factor(v_lead):
 
 def get_safe_obstacle_distance(v_ego, t_follow):
   return (v_ego**2) / (2 * COMFORT_BRAKE) + t_follow * v_ego + STOP_DISTANCE
+
+def model_lead_trajectory(lead, model_lead, v_ego, sustained_braking=False):
+  """Lead trajectory that starts at the lead's measured distance and speed and follows the model's predicted lead speed.
+
+  The default path extrapolates one acceleration estimate over the whole horizon, so a lead that slows briefly is
+  planned as if it keeps slowing. Here the speed change over the horizon comes from the model's lead prediction.
+  Where the lead's acceleration estimate (from radar) shows harder braking than the model predicts, the difference
+  is added with the default decay, so radar-detected braking still reaches the plan before the model sees it.
+  With sustained_braking, a lead that both radar and model see braking also keeps braking (SUSTAINED_BRAKING_MIN).
+  Returns None when the model has no usable prediction for this lead.
+  """
+  if lead.modelProb <= 0.5 or model_lead.prob <= 0.5 or len(model_lead.v) != len(LEAD_T_IDXS_MODEL) or not len(model_lead.a):
+    return None
+  v_model = np.asarray(model_lead.v, dtype=np.float64)
+  a_lead = float(np.clip(lead.aLeadK, -10., 5.))
+  a_extra = min(a_lead - model_lead.a[0], 0.0)
+  v_lead_traj = (lead.vLead + np.interp(T_IDXS, LEAD_T_IDXS_MODEL, v_model - v_model[0]) +
+                 np.cumsum(T_DIFFS * a_extra * np.exp(-_LEAD_ACCEL_TAU * (T_IDXS**2)/2.)))
+  if sustained_braking and a_lead < SUSTAINED_BRAKING_MIN and model_lead.a[0] < SUSTAINED_BRAKING_MIN:
+    a_braking = min(a_lead, model_lead.a[0])
+    v_lead_traj = np.minimum(v_lead_traj, lead.vLead + np.cumsum(T_DIFFS * a_braking * np.exp(-lead.aLeadTau * (T_IDXS**2)/2.)))
+
+  # MPC will not converge if immediate crash is expected
+  # Clip lead distance to what is still possible to brake for
+  min_x_lead = MIN_X_LEAD_FACTOR * (v_ego + lead.vLead) * (v_ego - lead.vLead) / (-ACCEL_MIN * 2)
+  v_lead_traj = np.clip(v_lead_traj, 0.0, 1e8)
+  x_lead_traj = max(lead.dRel, min_x_lead) + np.cumsum(T_DIFFS * v_lead_traj)
+  return np.column_stack((x_lead_traj, v_lead_traj))
 
 def gen_long_model():
   model = AcadosModel()
@@ -214,6 +251,7 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, dt=DT_MDL):
     self.dt = dt
+    self.sustained_braking = False
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = LongitudinalPlanSource.cruise
@@ -284,8 +322,13 @@ class LongitudinalMpc:
     lead_xv = np.column_stack((x_lead_traj, v_lead_traj))
     return lead_xv
 
-  def process_lead(self, lead):
+  def process_lead(self, lead, model_lead=None):
     v_ego = self.x0[1]
+    if lead is not None and lead.present and model_lead is not None:
+      lead_xv = model_lead_trajectory(lead, model_lead, v_ego, self.sustained_braking)
+      if lead_xv is not None:
+        return lead_xv
+
     if lead is not None and lead.present:
       x_lead = lead.dRel
       v_lead = lead.vLead
@@ -307,11 +350,18 @@ class LongitudinalMpc:
     lead_xv = self.extrapolate_lead(x_lead, v_lead, a_lead, a_lead_tau)
     return lead_xv
 
-  def update(self, radarstate, personality=log.LongitudinalPersonality.standard):
-    t_follow = get_T_FOLLOW(personality)
+  def update(self, radarstate, personality=log.LongitudinalPersonality.standard, model_leads=None, t_follow=None, sustained_braking=False):
+    # t_follow: a following time other than the personality's (PersonalityGapOnly)
+    if t_follow is None:
+      t_follow = get_T_FOLLOW(personality)
+    # sustained_braking: model_lead_trajectory's ModelLeadSustainedBraking
+    self.sustained_braking = sustained_braking
 
-    lead_xv_0 = self.process_lead(radarstate.leadOne)
-    lead_xv_1 = self.process_lead(radarstate.leadTwo)
+    # model_leads: modelV2.leadsV3, to plan against the model's predicted lead trajectories (model_lead_trajectory)
+    if model_leads is None or len(model_leads) < 2:
+      model_leads = (None, None)
+    lead_xv_0 = self.process_lead(radarstate.leadOne, model_leads[0])
+    lead_xv_1 = self.process_lead(radarstate.leadTwo, model_leads[1])
 
     # To estimate a safe distance from a moving lead, we calculate how much stopping
     # distance that lead needs as a minimum. We can add that to the current distance

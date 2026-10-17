@@ -5,9 +5,15 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
-from openpilot.cereal import messaging, custom
+import numpy as np
+
+from openpilot.cereal import messaging, custom, log
 from opendbc.car import structs
+from opendbc.car.interfaces import ACCEL_MAX
 from openpilot.common.constants import CV
+from openpilot.common.params import Params
+from openpilot.common.realtime import DT_MDL
+from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import get_T_FOLLOW
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
@@ -19,6 +25,35 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 
 DecState = custom.LongitudinalPlanSP.DynamicExperimentalControl.DynamicExperimentalControlState
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
+LongitudinalPersonality = log.LongitudinalPersonality
+
+# GentleHighwayPickup: at highway speed the plan accelerates up to the cruise limit, 0.8 m/s^2 at 25 m/s falling to 0.6 at
+# 40 m/s. The cruise target sits at that limit while a lead holds the plan down, so after a brake the plan goes straight
+# to it once the lead stops holding it down. On the CR-V's pickups after a brake above 31 m/s, openpilot peaked at a
+# median 0.74 m/s^2 against 0.33 for stock ACC (bosch-c-research docs/drive-1db-brake-then-accelerate.md). With the
+# setting on, the plan's acceleration builds up from zero at no more than GENTLE_PICKUP_JERK and stops at
+# GENTLE_PICKUP_MAX_ACCEL, whether it is returning to the set speed after a brake or climbing to a new one. Both blend in
+# between the two speeds in GENTLE_PICKUP_BP, so city driving and launches are unchanged. Braking is never limited.
+GENTLE_PICKUP_BP = [15., 25.]  # m/s
+GENTLE_PICKUP_MAX_ACCEL = [ACCEL_MAX, 0.3]  # m/s^2
+GENTLE_PICKUP_JERK = [10., 0.25]  # m/s^3
+# an acceleration above the limit, as after the driver lets go of the gas, comes down to it at this rate rather than at once
+GENTLE_PICKUP_RELEASE_JERK = 1.0  # m/s^3
+
+# PersonalityGapOnly: the personality (the distance button) sets only the following gap, and every personality keeps
+# standard's jerk and acceleration-change costs. Relaxed keeps its own gap, standard takes aggressive's, and aggressive
+# takes stock ACC's. Stock ACC on the CR-V settled a median 28 m behind a lead at 29 m/s, 0.98 s of distance per speed
+# (bosch-c-research docs/stock-acc-far-leads.md). The MPC's gap is t_follow * v + 6 m, so 0.8 s gives the same distance
+# at highway speed (29 m at 29 m/s) and a longer one in town (16 m at 13 m/s).
+STOCK_GAP_T_FOLLOW = 0.8  # s
+
+
+def get_gap_only_T_FOLLOW(personality) -> float:
+  if personality == LongitudinalPersonality.aggressive:
+    return STOCK_GAP_T_FOLLOW
+  if personality == LongitudinalPersonality.standard:
+    return get_T_FOLLOW(LongitudinalPersonality.aggressive)
+  return get_T_FOLLOW(personality)
 
 
 class LongitudinalPlannerSP:
@@ -35,6 +70,47 @@ class LongitudinalPlannerSP:
 
     self.output_v_target = 0.
     self.output_a_target = 0.
+
+    self.params = Params()
+    self.frame = 0
+    self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
+    self.lead_sustained_braking = self.params.get_bool("ModelLeadSustainedBraking")
+    self.gentle_pickup = self.params.get_bool("GentleHighwayPickup")
+    self.gap_only = self.params.get_bool("PersonalityGapOnly")
+
+  def read_params(self) -> None:
+    if self.frame % int(1. / DT_MDL) == 0:
+      self.model_lead_trajectory = self.params.get_bool("ModelLeadTrajectory")
+      self.lead_sustained_braking = self.params.get_bool("ModelLeadSustainedBraking")
+      self.gentle_pickup = self.params.get_bool("GentleHighwayPickup")
+      self.gap_only = self.params.get_bool("PersonalityGapOnly")
+
+  def model_leads(self, sm: messaging.SubMaster):
+    # The model's lead predictions, when the MPC should plan against them (long_mpc.model_lead_trajectory)
+    return sm['modelV2'].leadsV3 if self.model_lead_trajectory else None
+
+  def t_follow(self, sm: messaging.SubMaster) -> float | None:
+    """The MPC's following time: PersonalityGapOnly's gap for the personality, or None for the personality's own."""
+    if self.gap_only:
+      return get_gap_only_T_FOLLOW(sm['selfdriveState'].personality)
+    return None
+
+  def weights_personality(self, sm: messaging.SubMaster):
+    """The personality whose MPC cost weights to use: standard for every personality under PersonalityGapOnly."""
+    if self.gap_only:
+      return LongitudinalPersonality.standard
+    return sm['selfdriveState'].personality
+
+  def limit_pickup(self, v_ego: float, a_target: float, a_prev: float, dt: float) -> float:
+    """GentleHighwayPickup: the plan's acceleration target with its rise and its ceiling limited at speed, given the
+    previous tick's target. Lower targets, braking included, pass through."""
+    if not self.gentle_pickup:
+      return a_target
+    max_accel = float(np.interp(v_ego, GENTLE_PICKUP_BP, GENTLE_PICKUP_MAX_ACCEL))
+    jerk = float(np.interp(v_ego, GENTLE_PICKUP_BP, GENTLE_PICKUP_JERK))
+    rise_limit = max(a_prev, 0.) + jerk * dt
+    ceiling = max(max_accel, a_prev - GENTLE_PICKUP_RELEASE_JERK * dt)
+    return min(a_target, rise_limit, ceiling)
 
   def is_e2e(self, sm: messaging.SubMaster) -> bool:
     experimental_mode = sm['selfdriveState'].experimentalMode
@@ -74,6 +150,8 @@ class LongitudinalPlannerSP:
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
+    self.read_params()
+    self.frame += 1
     self.events_sp.clear()
     self.dec.update(sm)
     self.e2e_alerts_helper.update(sm, self.events_sp)
